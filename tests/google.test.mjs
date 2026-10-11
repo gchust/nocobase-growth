@@ -107,9 +107,32 @@ function fixture({
   return { calls, fetchImpl, tokenCount: () => tokenCount };
 }
 
-test('missing, malformed, or redirected credentials fail before any network request', async () => {
+test('unconfigured Google sources remain null without requests even when GA4 has a property', async () => {
+  let requests = 0;
+  const fetchImpl = () => { requests++; throw Error('Google must not be called'); };
+  for (const env of [{}, { GOOGLE_CREDENTIALS_JSON: '' }]) {
+    for (const ga4 of [{ property_id: null }, { property_id: '12345', hostname: 'www.nocobase.com' }]) {
+      const result = await collectGoogle({ ...CONFIG, ga4 }, { env, now: NOW, fetchImpl });
+      assert.equal(result.seo, null);
+      assert.equal(result.analytics, null);
+      assert.deepEqual(result.evidence, []);
+      assert.deepEqual(result.sources, [
+        { id: 'gsc', status: 'not_configured', collected_at: NOW.toISOString(), data_through: null,
+          data_timezone: 'America/Los_Angeles', reason: '未配置 Google 凭证；本次不包含搜索效果数据。' },
+        { id: 'ga4', status: 'not_configured', collected_at: NOW.toISOString(), data_through: null,
+          data_timezone: null, reason: ga4.property_id
+            ? '未配置 Google 凭证；本次不包含 GA4 数据。' : '未配置 GA4 属性；本次不包含站内分析数据。' },
+      ]);
+    }
+  }
+  assert.equal(requests, 0);
+});
+
+test('nonempty malformed or redirected credentials fail before any network request', async () => {
   for (const [env, code] of [
-    [{}, 'GOOGLE_CREDENTIALS_MISSING'],
+    [{ GOOGLE_CREDENTIALS_JSON: ' \t\n ' }, 'GOOGLE_CREDENTIALS_INVALID'],
+    [{ GOOGLE_CREDENTIALS_JSON: '{}' }, 'GOOGLE_CREDENTIALS_INVALID'],
+    [{ GOOGLE_CREDENTIALS_JSON: 'null' }, 'GOOGLE_CREDENTIALS_INVALID'],
     [{ GOOGLE_CREDENTIALS_JSON: '{private broken json' }, 'GOOGLE_CREDENTIALS_INVALID'],
     [{ GOOGLE_CREDENTIALS_JSON: JSON.stringify({
       ...JSON.parse(ENV.GOOGLE_CREDENTIALS_JSON), token_uri: 'https://attacker.invalid/token',
@@ -120,6 +143,18 @@ test('missing, malformed, or redirected credentials fail before any network requ
       (error) => error instanceof GoogleCollectionError && error.code === code && !error.message.includes('private'));
     assert.equal(requests, 0);
   }
+});
+
+test('configured authorization failures are errors rather than unconfigured sources', async () => {
+  const mock = fixture({ intercept: call => call.url !== TOKEN_URL
+    ? json({ error: 'PRIVATE_PERMISSION_FAILURE' }, 403) : undefined });
+  await assert.rejects(collectGoogle(CONFIG, { env: ENV, now: NOW, fetchImpl: mock.fetchImpl }), error => {
+    assert.equal(error.code, 'GSC_HTTP_ERROR');
+    assert.equal(error.http_status, 403);
+    assert.ok(!JSON.stringify(error).includes('PRIVATE_PERMISSION_FAILURE'));
+    return true;
+  });
+  assert.equal(mock.calls.length, 2);
 });
 
 test('final boundary, exact comparison ranges, independent totals, and observed-only movers', async () => {

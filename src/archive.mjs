@@ -40,6 +40,12 @@ function validDate(value) {
   return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
+// A missing date and an explicitly unavailable Google date are different states.
+function validDataThrough(value) {
+  return isRecord(value) && Object.hasOwn(value, 'data_through')
+    && (value.data_through === null || validDate(value.data_through));
+}
+
 function canonicalValue(value, seen = new Set()) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -248,7 +254,7 @@ function reportReference(value) {
 function validateLatest(latest, ctx) {
   if (!isRecord(latest) || latest.schema_version !== 1 || latest.status !== 'completed'
       || latest.repository !== REPOSITORY || latest.repository_id !== ctx.repository_id
-      || !validDate(latest.report_date) || !validDate(latest.data_through)
+      || !validDate(latest.report_date) || !validDataThrough(latest)
       || typeof latest.run_id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(latest.run_id)
       || !Number.isSafeInteger(latest.attempt) || latest.attempt < 1 || !SHA.test(latest.code_sha ?? '')) {
     fail('ARCHIVE_STATE_INVALID');
@@ -265,7 +271,7 @@ async function previousState(ctx, view) {
   if (summary === null && site_checks === null && latest === null) return { summary, site_checks, latest };
   if (summary === null || site_checks === null || latest === null) fail('ARCHIVE_STATE_INVALID');
   validateLatest(latest, ctx);
-  if (summary.data_through !== latest.data_through) fail('ARCHIVE_STATE_INVALID');
+  if (!validDataThrough(summary) || summary.data_through !== latest.data_through) fail('ARCHIVE_STATE_INVALID');
   return { summary, site_checks, latest };
 }
 
@@ -309,7 +315,7 @@ function normalizeRun(options, ctx) {
   const state = options.state === undefined ? null : canonicalValue(options.state);
   if (state !== null && !isRecord(state)) fail('ARCHIVE_INVALID_INPUT');
   if (status === 'completed'
-      && (!isRecord(state?.summary) || !isRecord(state?.site_checks) || !validDate(state.summary.data_through))) {
+      && (!validDataThrough(state?.summary) || !isRecord(state?.site_checks))) {
     fail('ARCHIVE_INCOMPLETE_RUN');
   }
   const data_through = validDate(state?.summary?.data_through) ? state.summary.data_through : null;
@@ -343,9 +349,11 @@ function existingResult(marker, view, run, ctx) {
 }
 
 function entriesForRun(run, ctx, previous) {
+  const cutoffDoesNotRegress = previous.latest === null || previous.latest.data_through === null
+    || (run.data_through !== null && run.data_through >= previous.latest.data_through);
   const latestUpdated = run.status === 'completed'
     && (previous.latest === null || (run.report_date > previous.latest.report_date
-      && run.data_through >= previous.latest.data_through));
+      && cutoffDoesNotRegress));
   const priorReport = previous.latest === null ? null : reportReference(previous.latest);
   const suppliedRun = run.files.has('run.json') ? JSON.parse(run.files.get('run.json')) : {};
   const marker = {
@@ -406,9 +414,11 @@ async function probeRun(ctx, run) {
 /**
  * Atomically append one run with Git Data tree/commit/ref operations.
  * Completed runs require five report files and state: { summary, site_checks };
- * summary.data_through must be YYYY-MM-DD. run.json is generated if omitted.
- * Latest advances only for a strictly newer report_date with data_through >=
- * the existing cutoff. Failed runs and same-day retries never rewrite state.
+ * summary.data_through must explicitly be YYYY-MM-DD or null (no Google data).
+ * run.json is generated if omitted. Latest requires a strictly newer report_date;
+ * an existing non-null Google cutoff cannot be replaced by null or an older date.
+ * A null cutoff may advance to another null cutoff or any valid Google date.
+ * Failed runs and same-day retries never rewrite state.
  * Each GET and the write transaction have at most three attempts.
  */
 export async function archiveRun(options) {

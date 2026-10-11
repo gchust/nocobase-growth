@@ -1,6 +1,6 @@
 ---
 name: nocobase-growth-daily
-description: Interpret verified daily SEO and growth evidence for nocobase.com. Use to write a Chinese daily report from supplied Google Search Console, optional GA4, page checks and prior report state. Return evidence-linked hypotheses and up to three concrete actions.
+description: Interpret verified daily SEO and growth evidence for nocobase.com. Use to write a Chinese daily report from page checks, optional Google Search Console and GA4 data, and prior report state. Return evidence-linked hypotheses and up to three concrete actions.
 ---
 
 # Daily growth analysis
@@ -12,7 +12,7 @@ Markdown. The runner has already collected data and computed all metrics.
 ## Read the result in this order
 
 1. Read source status, effective data dates, source time zones and coverage notes.
-2. Explain the 7-day and 28-day comparisons. Use the exact supplied values; do not
+2. When supplied, explain the 7-day and 28-day SEO comparisons. Use the exact supplied values; do not
    recompute ratios, average positions, or totals from query/page detail.
 3. Compare important page checks with the previous successful technical state.
 4. Use page/query movers to suggest explanations, respecting missing rows and
@@ -30,6 +30,13 @@ Markdown. The runner has already collected data and computed all metrics.
   processing lag have different meanings; GA4 has no immutable final guarantee.
 - Distinguish `null`, failed collection and missing configuration from observed
   zero. Explain unavailable conversions rather than guessing them.
+- When `seo` is `null` and GSC is `not_configured`, identify the report as a page
+  SEO inspection and state that Google search performance is not connected.
+  Use only page checks and their recorded changes. Never infer clicks,
+  impressions, CTR, rankings, traffic trends or growth from HTML metadata.
+  Treat the first inspection as a baseline, not evidence of a recent regression.
+  Keep Google-related previous summaries historical and do not present them as
+  current observations. Include the missing source in `limitations`.
 - Compare like periods: seven complete days against the previous seven; 28 against
   the previous 28. CTR difference is percentage points. Lower average position
   can be better, but changing query mix means it is not a fixed keyword rank.

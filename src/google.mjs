@@ -57,7 +57,7 @@ function numberValue(value, sourceId, { maximum = Infinity, integer = false } = 
 
 function readCredentials(env) {
   if (typeof env.GOOGLE_CREDENTIALS_JSON !== 'string' || !env.GOOGLE_CREDENTIALS_JSON.trim()) {
-    fail('GOOGLE_CREDENTIALS_MISSING', 'gsc');
+    fail('GOOGLE_CREDENTIALS_INVALID', 'gsc');
   }
   let credentials;
   try { credentials = JSON.parse(env.GOOGLE_CREDENTIALS_JSON); } catch {
@@ -582,13 +582,30 @@ async function collectGa4(client, options, endDate, collectedAt) {
   };
 }
 
-/** Fetches Google evidence only. The caller must fail the run if a required source fails. */
+/** Unconfigured Google sources remain absent; configured sources must authenticate. */
 export async function collectGoogle(config, {
   env = process.env, fetchImpl = fetch, now = new Date(), asOf,
 } = {}) {
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) fail('GOOGLE_DATE_INVALID', 'gsc');
+  const collectedAt = now.toISOString();
+  // Only an omitted or empty secret is optional. A nonempty malformed credential
+  // must still fail instead of disguising an access problem as missing data.
+  if (env.GOOGLE_CREDENTIALS_JSON === undefined || env.GOOGLE_CREDENTIALS_JSON === '') {
+    const ga4Property = config?.ga4?.property_id;
+    const ga4Configured = ga4Property !== null && ga4Property !== undefined && ga4Property !== '';
+    return {
+      sources: [
+        { id: 'gsc', status: 'not_configured', collected_at: collectedAt,
+          data_through: null, data_timezone: GSC_TIME_ZONE, reason: '未配置 Google 凭证；本次不包含搜索效果数据。' },
+        { id: 'ga4', status: 'not_configured', collected_at: collectedAt,
+          data_through: null, data_timezone: null, reason: ga4Configured
+            ? '未配置 Google 凭证；本次不包含 GA4 数据。' : '未配置 GA4 属性；本次不包含站内分析数据。' },
+      ],
+      seo: null, analytics: null, evidence: [],
+    };
+  }
   const options = validatedOptions(config, now, asOf);
   const credentials = readCredentials(env);
-  const collectedAt = now.toISOString();
   const scopes = options.ga4Configured ? [GSC_SCOPE, GA4_SCOPE] : [GSC_SCOPE];
   const client = createGoogleClient(credentials, scopes, fetchImpl, now);
   const gsc = await collectGsc(client, options, collectedAt);

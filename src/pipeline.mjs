@@ -45,7 +45,6 @@ function archiveOptions(config, env) {
 
 export async function preflight({ env = process.env, verify = verifyPrivateRepository } = {}) {
   const config = await loadConfig(join(ROOT, 'sites/nocobase.json'), { env });
-  if (!(env.GOOGLE_CREDENTIALS_JSON || env.GOOGLE_CREDENTIALS_PRESENT === 'true')) throw new SafeError('GOOGLE_CREDENTIALS_REQUIRED');
   if (!(env.DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY_PRESENT === 'true')) throw new SafeError('MODEL_CREDENTIALS_REQUIRED');
   await verify(archiveOptions(config, env));
   return { status: 'ready_for_first_run' };
@@ -89,7 +88,7 @@ export async function collectRun({ env = process.env, now = new Date(), google =
     schema_version: 1,
     site: { id: context.config.id, name: context.config.name, url: context.config.url, timezone: context.config.timezone },
     generated_at: now.toISOString(), report_date: context.report_date,
-    report_status: sources.every(s => s.status === 'ok') ? 'complete' : 'limited',
+    report_status: data.seo && sources.every(s => s.status === 'ok') ? 'complete' : 'limited',
     run: context.run, sources, seo: data.seo, analytics: data.analytics,
     site_checks: pageData.site_checks, evidence: [...data.evidence, ...pageData.evidence],
     history: { index_url: `https://github.com/${context.config.archive.repository}/tree/${REPORTS_BRANCH}/runs`,
@@ -101,10 +100,10 @@ export async function collectRun({ env = process.env, now = new Date(), google =
 }
 
 export function makeSummary(report) {
-  return { schema_version: 1, report_date: report.report_date, data_through: report.seo.data_through,
+  return { schema_version: 1, report_date: report.report_date, data_through: report.seo?.data_through ?? null,
     source_status: report.sources.map(s => ({ id: s.id, status: s.status, data_through: s.data_through })),
     summary: report.insights.summary, actions: report.insights.actions,
-    comparisons: report.seo.comparisons, code_sha: report.run.code_sha,
+    comparisons: report.seo?.comparisons ?? null, code_sha: report.run.code_sha,
     run_id: report.run.id, model: report.run.model };
 }
 
@@ -124,7 +123,7 @@ export async function analyzeRun({ env = process.env, analyzer = analyzeReport, 
     'metrics.json': json({ schema_version: 1, sources: report.sources, seo: report.seo, analytics: report.analytics, site_checks: report.site_checks, evidence: report.evidence }),
     'analysis.json': json({ insights: result.insights, usage: result.usage }),
     'run.json': json({ ...context.run, status: 'completed', report_date: context.report_date,
-      data_through: report.seo.data_through, report_status: report.report_status,
+      data_through: report.seo?.data_through ?? null, report_status: report.report_status,
       completed_at: new Date().toISOString(), source_status: report.sources })
   };
   for (const [name, content] of Object.entries(files)) await writeFile(join(output, name), content, { mode: 0o600 });

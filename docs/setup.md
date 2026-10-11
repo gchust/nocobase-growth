@@ -1,6 +1,6 @@
 # 部署每日 NocoBase 增长报告
 
-本项目把代码和工作流保存在公共仓库，把真实指标、分析、HTML 和运行记录保存在单独的私有仓库。首次部署依次完成：确认两个仓库与真实 repository ID、配置三个凭证及实际模型 endpoint / model ID、运行 preflight、运行一次真实 report，最后启用每日定时任务。
+本项目把代码和工作流保存在公共仓库，把真实指标、分析、HTML 和运行记录保存在单独的私有仓库。首次部署依次完成：确认两个仓库与真实 repository ID、配置报告仓及模型凭证和实际模型 endpoint / model ID、运行 preflight、运行一次真实 report，最后启用每日定时任务。Google 凭证可稍后添加；未配置时先运行页面 SEO 巡检。
 
 ## 1. 准备两个仓库
 
@@ -23,16 +23,16 @@ gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visib
 
 ## 2. 设置生产环境、凭证与模型接口
 
-当前代码仓库已建立 `growth-production` 环境并保存仅允许 `main` 分支的规则；下面的环境创建步骤供重新部署时参考。首次使用请在现有环境中添加三个凭证，并配置实际模型接口。
+当前代码仓库已建立 `growth-production` 环境并保存仅允许 `main` 分支的规则；下面的环境创建步骤供重新部署时参考。首次使用请在现有环境中添加报告仓和模型两个必需凭证，并配置实际模型接口。
 
 在公共代码仓库打开 **Settings → Environments**，创建 `growth-production`。其 **Deployment branches and tags** 选择 **Selected branches and tags**，只添加类型为 **Branch** 的 `main` 规则。这样环境凭证仅供选定分支使用；这是 GitHub 提供的环境分支限制机制。[GitHub 环境文档](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 
-在这个环境中添加以下三个 **Environment secrets**：
+在这个环境中配置以下 **Environment secrets**：
 
 | Secret | 值 | 使用阶段 |
 | --- | --- | --- |
 | `REPORTS_TOKEN` | 仅授权私有报告仓库的 fine-grained PAT | `preflight`、`prepare`、`publish`、`failure` |
-| `GOOGLE_CREDENTIALS_JSON` | Google 服务账户的完整 JSON 凭证 | `collect` |
+| `GOOGLE_CREDENTIALS_JSON` | 可选，Google 服务账户的完整 JSON 凭证；未配置时运行页面巡检 | `collect` |
 | `DEEPSEEK_API_KEY` | 用于本项目的 DeepSeek API key | `analyze` |
 
 在同一环境的 **Environment variables** 中配置模型服务；本地运行时使用同名环境变量：
@@ -44,7 +44,7 @@ gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visib
 
 这两项属于非凭证配置。自定义网关应同时核对 endpoint、model ID 和对应 Key；不能把第三方 Key 配给默认官方 endpoint。Variables 可能显示在公开 Actions 的步骤环境中，因此 URL 不得携带 Key、用户名、密码或其它凭证。
 
-三个 secret 都不放入 job 级别环境变量。`preflight` 只接收 `REPORTS_TOKEN` 的真实值；另外两项仅传入存在与否的布尔标记。Claude 子进程只接收模型凭证和运行所需的白名单变量。
+三个 secret 都不放入 job 级别环境变量。`preflight` 只接收 `REPORTS_TOKEN` 的真实值和模型凭证存在与否的布尔标记。Google 凭证只传给采集阶段；Claude 子进程只接收模型凭证和运行所需的白名单变量。
 
 为本项目独立配置凭证。`nb3-factory` 只作为运行方式的参考，本项目不会读取其中保存的 secret。凭证文件、真实报告及完整模型输出都不提交到公共代码仓库。
 
@@ -59,7 +59,13 @@ gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visib
 
 90 天是本项目的初始维护选择，可按维护周期调整；过期前更新环境 Secret。仓库筛选、权限和预填参数遵循 GitHub 的 fine-grained PAT 机制。[GitHub PAT 文档](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 
-### GOOGLE_CREDENTIALS_JSON
+### GOOGLE_CREDENTIALS_JSON（可选）
+
+不设置或留空时，程序不请求 Google API，仍会检查配置的重点页面、比较前次页面状态、调用模型生成建议，并归档 HTML / Markdown 报告。报告标记为页面 SEO 巡检和 `limited`，GSC / GA4 标记 `not_configured`，`seo`、`analytics`、`data_through` 保持 `null`；不会生成点击、曝光、CTR 或排名趋势。
+
+首次巡检用于建立基线；本次首次发现的问题不代表它刚刚发生。后续报告再与前次成功页面状态比较。
+
+以后在同一环境添加此 Secret 即可自动接入 Google 数据，不必切换工作流模式。非空但无效的 JSON、过期凭证、属性授权和 API 错误仍会失败，不降级为未配置。准备接入时完成以下步骤：
 
 1. 在用于本项目的 Google Cloud 项目启用 **Google Search Console API**。
 2. 创建服务账户和 JSON 密钥，把完整 JSON 原样保存为环境 secret。
@@ -86,14 +92,14 @@ GSC 域名属性可能包含多个主机名；GA4 的 hostname 限定与 GSC 属
 
 准备可调用该 endpoint / 模型的 Key，并确保账户可用于 API 请求。报告分析所需的指标和页面检查信息会发送到所配置的服务。当前将 `DEEPSEEK_API_KEY` 同时用于 Claude 的 Bearer 和 `x-api-key` 凭证变量；如果网关要求不同的凭证方式，应先确认其接入文档。Claude 不拥有文件、终端或 MCP 工具；模型输出只负责分析字段，指标由代码计算，JSON 在本地通过闭合 schema 校验后才进入报告。
 
-`preflight` 不发起 Google 或模型请求。首次真实 `report` 才能验证 Google 权限、模型账户和当前 Claude Code / DeepSeek 组合的实际兼容性。
+`preflight` 不发起 Google 或模型请求。首次真实 `report` 验证页面采集、模型分析和私有归档；配置了 Google 凭证时，还会验证 Google 权限和实际数据读取。
 
 ## 3. 先检查，再运行第一份报告
 
 将配置和工作流合入公共仓库的 `main` 后，在 **Actions → NocoBase growth report → Run workflow** 操作：
 
-1. 分支选 `main`，`mode` 保持默认 `preflight`。它核对 endpoint / model ID 的配置格式、目标私有状态及三个 secret 是否存在，不测试模型或 Google 的网络连通性。
-2. preflight 成功后，手动选择 `mode: report`，`as_of` 留空。这次运行会读取 Google 数据、检查重点页、调用 DeepSeek 并归档真实报告。
+1. 分支选 `main`，`mode` 保持默认 `preflight`。它核对 endpoint / model ID 的配置格式、目标私有状态及报告仓和模型的必需凭证，不测试模型或 Google 的网络连通性。
+2. preflight 成功后，手动选择 `mode: report`，`as_of` 留空。这次运行会检查重点页、读取已接入的 Google 数据、调用 DeepSeek 并归档真实报告。没有 Google 凭证也可完成。
 3. 在私有报告仓库确认 `state/latest.json` 和它指向的报告已经出现。
 4. 在公共代码仓库 **Settings → Secrets and variables → Actions → Variables**，将已建立的仓库变量 `GROWTH_ENABLED` 从 `false` 改为小写字符串 `true`。
 
@@ -119,7 +125,7 @@ GSC 域名属性可能包含多个主机名；GA4 的 hostname 限定与 GSC 属
 
 GitHub 文件页中的 HTML 是代码文件，本项目采用下载后本地查看的方式。GitHub Pages 保持禁用。
 
-只有文件完整、状态为 `completed`，并且 `report_date` 比当前最新报告日期更晚、`data_through` 不早于现有截止日时，三个 `state` 文件才一起更新。同日重跑、旧日期补跑或使用更旧数据的运行保留独立目录；已完成准备且被流程捕获的生成失败保留 `run.json`。现有成功状态继续供下次运行使用。
+只有文件完整、状态为 `completed`，并且 `report_date` 比当前最新报告日期更晚、`data_through` 不早于现有截止日时，三个 `state` 文件才一起更新。页面巡检的截止日为显式 `null`，可按报告日推进页面状态，也可被后续带搜索数据的报告推进；已有搜索数据截止日后，无 Google 数据的报告只归档，不覆盖该最新状态。同日重跑、旧日期补跑或使用更旧数据的运行保留独立目录；已完成准备且被流程捕获的生成失败保留 `run.json`。现有成功状态继续供下次运行使用。
 
 生产流程在一个 job 中顺序执行，所有生产运行共享固定 concurrency group，并设置 `cancel-in-progress: false`。归档使用 `force: false` 的 Git ref 更新和最多三次事务尝试；冲突后重新读取当前分支。发布响应丢失时先检查 run marker，已生成的报告直接重试归档，不再次调用模型。
 
@@ -133,7 +139,8 @@ GitHub 文件页中的 HTML 是代码文件，本项目采用下载后本地查�
 | `ARCHIVE_TARGET_NOT_FOUND`、`ARCHIVE_TARGET_MISMATCH` | 核对仓库名称、ID、PAT 的目标仓库和访问权 |
 | `ARCHIVE_TARGET_NOT_PRIVATE`、`ARCHIVE_TARGET_DISABLED` | 恢复目标私有且可写的状态，再手动运行 |
 | `CONFIG_INVALID_MODEL_ENDPOINT`、`CONFIG_INVALID_MODEL` | 核对 `DEEPSEEK_BASE_URL` 为无凭证的完整 HTTPS Base URL、`DEEPSEEK_MODEL` 为服务商接受的模型 ID |
-| Google 凭证、授权或 API 错误 | 核对服务账户 JSON、属性授权、已启用的 API 与日期范围 |
+| Google 数据显示未配置 | 页面巡检可正常运行；需要搜索效果时添加 Google 凭证 |
+| 已提供 Google 凭证，但发生授权或 API 错误 | 核对服务账户 JSON、属性授权、已启用的 API 与日期范围；不会自动忽略错误 |
 | 模型凭证、超时或 JSON 校验错误 | 核对 DeepSeek 账户、API model id、Claude 版本和固定错误代码；校验失败的分析不会发布为成功报告 |
 | 发布失败 | workflow 尝试归档已有的六个文件；仍失败时保留失败状态，可通过 GitHub 重跑产生新的 attempt |
 | 每日任务没有执行 | 核对 `GROWTH_ENABLED`、默认分支、环境的 `main` 分支规则和工作流启用状态 |

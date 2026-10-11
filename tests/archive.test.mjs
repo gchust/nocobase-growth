@@ -177,6 +177,28 @@ function run(server, overrides = {}) {
   return value;
 }
 
+function noGoogleRun(server, overrides = {}) {
+  const base = run(server);
+  const siteChecks = overrides.state?.site_checks ?? {
+    pages: [{ url: 'https://www.nocobase.com/', title: 'First page snapshot', status: 200 }],
+    findings: [],
+  };
+  return run(server, {
+    files: {
+      ...base.files,
+      'report.json': JSON.stringify({ seo: null, analytics: null, report_status: 'limited', site_checks: siteChecks }),
+      'metrics.json': JSON.stringify({ seo: null, analytics: null, site_checks: siteChecks }),
+      'analysis.json': JSON.stringify({ insights: { summary: 'Page checks are available; Google data is not configured.' } }),
+      'run.json': JSON.stringify({ status: 'completed', report_status: 'limited', data_through: null }),
+    },
+    state: {
+      summary: { data_through: null, report_status: 'limited', summary: 'Page checks are available.' },
+      site_checks: siteChecks,
+    },
+    ...overrides,
+  });
+}
+
 function errorCode(code) {
   return (error) => {
     assert.equal(error.code, code);
@@ -239,6 +261,126 @@ test('complete run atomically archives allowlisted files and reads consistent pr
     'state/latest.json', 'state/summary.json', 'state/site-checks.json',
   ].sort());
   assert.equal(server.calls.filter((call) => call.method === 'PATCH').length, 1);
+});
+
+test('a first report without Google data archives successfully and advances page state the next day', async () => {
+  const server = github();
+  const firstInput = noGoogleRun(server);
+  const first = await archiveRun(firstInput);
+  assert.equal(first.latest_updated, true);
+  assert.equal(server.json(`${first.run_path}report.json`).seo, null);
+  assert.equal(server.json(`${first.run_path}run.json`).data_through, null);
+  assert.equal(server.json(`${first.run_path}run.json`).archive.data_through, null);
+  const previous = await readPreviousState(options(server));
+  assert.equal(previous.latest.data_through, null);
+  assert.equal(previous.summary.data_through, null);
+  assert.deepEqual(previous.site_checks, firstInput.state.site_checks);
+
+  const nextSiteChecks = {
+    pages: [{ ...previous.site_checks.pages[0], title: 'Second page snapshot' }],
+    findings: [{ type: 'title_changed', before: previous.site_checks.pages[0].title, after: 'Second page snapshot' }],
+  };
+  const nextInput = noGoogleRun(server, {
+    report_date: '2026-10-12', run_id: '101',
+    state: {
+      summary: { data_through: null, report_status: 'limited', summary: 'A page title changed since the prior report.' },
+      site_checks: nextSiteChecks,
+    },
+  });
+  const next = await archiveRun(nextInput);
+  assert.equal(next.latest_updated, true);
+  const state = await readPreviousState(options(server));
+  assert.equal(state.latest.report_date, '2026-10-12');
+  assert.equal(state.latest.data_through, null);
+  assert.equal(state.latest.previous_report.run_path, first.run_path);
+  assert.equal(state.latest.previous_report.data_through, null);
+  assert.deepEqual(state.site_checks, nextSiteChecks);
+  assert.deepEqual(state.summary, nextInput.state.summary);
+  assert.ok(server.files().has(`${first.run_path}report.html`));
+  assert.ok(server.files().has(`${next.run_path}report.html`));
+});
+
+test('nullable cutoff transitions preserve newer report dates and the last successful Google cutoff', async (t) => {
+  const cases = [
+    ['null to null', null, null, true],
+    ['null to date', null, '2026-10-09', true],
+    ['date to null', '2026-10-08', null, false],
+    ['date to newer date', '2026-10-08', '2026-10-09', true],
+    ['date to equal date', '2026-10-08', '2026-10-08', true],
+    ['date to older date', '2026-10-08', '2026-10-07', false],
+  ];
+  for (const [name, oldDate, newDate, expected] of cases) {
+    await t.test(name, async () => {
+      const server = github();
+      const first = await archiveRun(run(server, {
+        state: { summary: { data_through: oldDate }, site_checks: { pages: ['old snapshot'] } },
+      }));
+      const before = await readPreviousState(options(server));
+      const next = await archiveRun(run(server, {
+        report_date: '2026-10-12', run_id: '101',
+        state: { summary: { data_through: newDate }, site_checks: { pages: ['new snapshot'] } },
+      }));
+      assert.equal(next.latest_updated, expected);
+      assert.ok(server.files().has(`${next.run_path}report.html`));
+      const state = await readPreviousState(options(server));
+      if (expected) {
+        assert.equal(state.latest.run_id, '101');
+        assert.equal(state.latest.data_through, newDate);
+        assert.deepEqual(state.site_checks.pages, ['new snapshot']);
+        assert.equal(state.latest.previous_report.run_path, first.run_path);
+      } else {
+        assert.deepEqual(state, before);
+      }
+    });
+  }
+});
+
+test('a nullable latest still rejects same-day or older report dates even when Google becomes available', async () => {
+  const server = github();
+  await archiveRun(noGoogleRun(server));
+  const before = await readPreviousState(options(server));
+  for (const [reportDate, dataThrough, id] of [
+    ['2026-10-11', null, '101'],
+    ['2026-10-11', '2026-10-09', '102'],
+    ['2026-10-10', null, '103'],
+    ['2026-10-10', '2026-10-09', '104'],
+  ]) {
+    const result = await archiveRun(run(server, {
+      report_date: reportDate, run_id: id,
+      state: { summary: { data_through: dataThrough }, site_checks: { pages: ['not latest'] } },
+    }));
+    assert.equal(result.latest_updated, false);
+    assert.deepEqual(await readPreviousState(options(server)), before);
+  }
+});
+
+test('nullable cutoff support still rejects missing and invalid cutoff fields before writing', async () => {
+  const server = github();
+  for (const summary of [{}, { data_through: 'null' }, { data_through: '' },
+    { data_through: 0 }, { data_through: false }, { data_through: '2026-02-30' }]) {
+    await assert.rejects(archiveRun(run(server, { state: { summary, site_checks: {} } })),
+      errorCode('ARCHIVE_INCOMPLETE_RUN'));
+  }
+  assert.equal(server.calls.length, 0);
+});
+
+test('reading nullable prior state requires explicit and matching valid cutoff fields', async (t) => {
+  for (const [name, file, mutate] of [
+    ['latest field missing', 'state/latest.json', (value) => { delete value.data_through; }],
+    ['latest field invalid', 'state/latest.json', (value) => { value.data_through = '2026-02-30'; }],
+    ['summary field missing', 'state/summary.json', (value) => { delete value.data_through; }],
+    ['summary field invalid', 'state/summary.json', (value) => { value.data_through = 'null'; }],
+    ['summary and latest disagree', 'state/summary.json', (value) => { value.data_through = '2026-10-08'; }],
+  ]) {
+    await t.test(name, async () => {
+      const server = github();
+      await archiveRun(noGoogleRun(server));
+      const value = server.json(file);
+      mutate(value);
+      server.append({ [file]: JSON.stringify(value) });
+      await assert.rejects(readPreviousState(options(server)), errorCode('ARCHIVE_STATE_INVALID'));
+    });
+  }
 });
 
 test('failure is retained with a generated run marker and never advances latest or summary', async () => {

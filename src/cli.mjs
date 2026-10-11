@@ -36,7 +36,7 @@ export async function main(args = process.argv.slice(2), env = process.env, outp
     await saveFailure(stage, error, env);
     // Never print the provider/agent response, error.message, stack, or values.
     // Only known setup codes are useful before a private run can be recorded.
-    const setupCodes = new Set(['CONFIG_REPORTS_REPOSITORY_ID_REQUIRED', 'GOOGLE_CREDENTIALS_REQUIRED',
+    const setupCodes = new Set(['CONFIG_REPORTS_REPOSITORY_ID_REQUIRED',
       'MODEL_CREDENTIALS_REQUIRED', 'CONFIG_INVALID_MODEL_ENDPOINT', 'CONFIG_INVALID_MODEL',
       'ARCHIVE_CREDENTIAL_MISSING', 'CODE_SHA_REQUIRED']);
     const reason = setupCodes.has(error?.code) ? error.code : 'PRIVATE_DETAILS_OR_SETUP_GUIDE';

@@ -315,3 +315,29 @@ test('shows page field changes as safely escaped observations and preserves sepa
   assert.match(result, /本次检查未覆盖，状态待确认。 &lt;img src=x&gt;/);
   assert.doesNotMatch(result, /<img\b|(?<!\\)!\[/);
 });
+
+test('first inspection marks a baseline and newly observed findings without asserting a recent regression', () => {
+  const report = fixture();
+  report.history.previous_report_url = null;
+  for (const render of [renderReport, renderMarkdown]) {
+    const result = render(report);
+    assert.match(result, /首次巡检用于建立基线；本次发现不代表问题刚出现。/);
+    assert.match(result, /首次发现的问题/);
+    assert.match(result, /首次发现/);
+    assert.doesNotMatch(result, /新增问题|新增 \/|>新增</);
+  }
+  assert.equal(report.site_checks.findings[0].state, 'new');
+  assert.equal(report.site_checks.new_count, 1);
+});
+
+test('subsequent reports and unknown history are not labelled as first inspections', () => {
+  for (const history of [fixture().history, {}, undefined]) {
+    const report = fixture();
+    report.history = history;
+    for (const render of [renderReport, renderMarkdown]) {
+      const result = render(report);
+      assert.doesNotMatch(result, /首次巡检用于建立基线/);
+      assert.match(result, /首次发现的问题/);
+    }
+  }
+});

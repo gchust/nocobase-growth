@@ -1,9 +1,12 @@
 # NocoBase Growth
 
-每天读取 `nocobase.com` 的真实搜索数据，生成一份中文增长日报。
+每天检查 `nocobase.com` 的重点页面，生成一份中文增长日报；接入 Google 后加入真实搜索数据。
 **公共仓库保存代码与工作流；私有仓库保存报告、证据和跨日状态。**
 
-主力数据源为 Google Search Console，GA4 可选；页面巡检使用静态 HTML。
+Google Search Console 和 GA4 均为可选数据源；页面巡检使用静态 HTML。
+未配置 Google 凭证时，报告明确标记为页面 SEO 巡检，包含页面问题、跨日变化和
+有证据的建议；搜索指标保持未接入，不填零。首次巡检用于建立基线，首次发现的问题
+不代表它刚刚发生。以后添加凭证即可自动加入搜索效果数据。
 Claude Code + DeepSeek Flash 负责解释已计算的事实，输出原因假设和最多三个
 优先动作。代码计算全部数值，并校验模型输出后再归档。
 
@@ -12,9 +15,9 @@ Claude Code + DeepSeek Flash 负责解释已计算的事实，输出原因假设
 ```mermaid
 flowchart TD
   A["公共仓库：定时 / 手动运行"] --> B["核验私有报告仓身份"]
-  B --> C["Google 数据与重点页检查"]
+  B --> C["重点页检查与可选 Google 数据"]
   B --> D["读取前次成功状态"]
-  C --> E["计算 7 天 / 28 天变化"]
+  C --> E["比较页面状态与可用搜索指标"]
   D --> E
   E --> F["固定 skill + Claude Code + DeepSeek"]
   F --> G["校验证据与 JSON，生成 HTML / Markdown"]
@@ -38,12 +41,13 @@ flowchart TD
 1. 确认两个仓库：公共代码仓以 `main` 为默认分支；报告仓保持 **Private**，以现有的 `develop` 为默认分支。
 2. 报告仓真实数字 ID `1414200278` 已写入 `sites/nocobase.json`；仅在重新创建报告仓时重新核对并更新。
 3. 公共仓库的 `growth-production` 环境已建立，仅允许 `main` 分支；在其中配置
-   三个 Secrets：`REPORTS_TOKEN`、`GOOGLE_CREDENTIALS_JSON`、`DEEPSEEK_API_KEY`；
+   两个必需 Secrets：`REPORTS_TOKEN`、`DEEPSEEK_API_KEY`；
+   需要搜索效果数据时再添加 `GOOGLE_CREDENTIALS_JSON`；
    自定义模型服务时，再配置两个 Variables：`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`。
-4. 手动运行 `preflight`，再运行一次 `report` 并核对真实数据。
+4. 手动运行 `preflight`，再运行一次 `report` 并核对页面检查及实际接入的数据源。
 5. 把仓库变量 `GROWTH_ENABLED` 设为 `true`，启用上海时间每日 **09:17** 的运行。
 
-配置尚未完整时不会开始生产采集。GitHub 的定时任务可能延迟；若公共仓库
+必需配置尚未完整时不会开始生产采集；缺少 Google 凭证不阻止页面巡检。GitHub 的定时任务可能延迟；若公共仓库
 连续 60 天没有活动，schedule 会自动停用，需手动恢复。实现和维护说明见
 [GitHub schedule 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
 
@@ -60,15 +64,15 @@ npm run demo
 演示生成在 `.work/demo/`，其数字全部为合成数据，不访问 Google、模型或
 报告仓，不代表真实 SEO 效果。这些输出被 gitignore 排除。
 
-实际本地运行需安装配置中固定版本的 Claude Code，设置上述三个环境变量
+实际本地运行需安装配置中固定版本的 Claude Code，设置上述两个必需凭证环境变量
 和当前代码的 `GROWTH_CODE_SHA`，再执行 `npm run report`。无人值守工作流已按
 阶段隔离凭证；本地也不要把凭证写进仓库。自定义服务同样通过
 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 环境变量配置。
 
 ## 报告内容
 
-- 搜索点击、曝光、CTR、平均位置，最近 7 天与前 7 天、最近 28 天与前 28 天。
-- 56 天趋势，以及主要页面和查询词变化；保留返回明细的覆盖限制。
+- 接入 GSC 后显示搜索点击、曝光、CTR、平均位置，以及 7 天 / 28 天比较。
+- 接入 GSC 后显示 56 天趋势和主要页面、查询词变化；保留返回明细的覆盖限制。
 - 重点页面的 HTTP、title、description、canonical、robots、H1 和跨日变化。
 - 可选 GA4 自然搜索会话、去重用户及关键事件，明确属性与 hostname 范围。
 - 有证据的原因假设、最多三个优先动作、数据缺口、前次报告与完整运行信息。
@@ -88,7 +92,8 @@ GA4 hostname 范围可能不同，报告保留各自口径。GA4 没有 GSC 式�
 
 模型只能填写 `insights`，不得修改指标；引用必须属于已有证据，目标 URL
 必须属于已配置域名。HTML 和 Markdown 对外部内容进行转义，不加载远端脚本、
-字体或图片。未配置 GA4 会生成明确受限的报告；已配置数据源发生错误时，
+字体或图片。未配置 Google 或 GA4 会生成明确受限的报告；非空 Google 凭证无效、
+过期或授权失败仍按失败处理。已配置数据源发生错误时，
 保留失败/受限记录，不能推进成功状态。
 
 ### 历史与失败
@@ -96,7 +101,9 @@ GA4 hostname 范围可能不同，报告保留各自口径。GA4 没有 GSC 式�
 私有报告存于 `runs/报告日期/运行ID-重试次数/`，每次最多六个白名单文件。
 成功状态保存在 `state/latest.json`、`state/summary.json` 和
 `state/site-checks.json`。只有更新报告日期且不使用更旧数据的成功运行才能
-原子更新状态；同日重跑和旧数据补跑均保留独立历史。
+原子更新状态；同日重跑和旧数据补跑均保留独立历史。页面巡检的 `data_through`
+为 `null`，可以按报告日推进页面状态；接入 GSC 后，无 Google 数据的后续报告只
+保留历史，不覆盖已有搜索数据的最新状态。
 
 生成失败不覆盖成功状态。发布失败先重试已经生成的文件，不再次调用模型；
 写入冲突使用非强制更新并有界重试。无法确认目标私有时停止，不能回退到公共存储。

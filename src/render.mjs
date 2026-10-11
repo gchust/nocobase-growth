@@ -1,5 +1,6 @@
 const NUMBER = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 });
 const DAY_MS = 86_400_000;
+const FIRST_INSPECTION_NOTE = '首次巡检用于建立基线；本次发现不代表问题刚出现。';
 const SOURCE_NAMES = {
   gsc: 'Google Search Console',
   ga4: 'Google Analytics 4',
@@ -35,6 +36,14 @@ function list(value) {
 
 function record(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function pageInspectionOnly(report) {
+  return report.seo === null && list(report.sources).some(source => source?.id === 'gsc' && source.status === 'not_configured');
+}
+
+function firstInspection(report) {
+  return record(report.history) && report.history.previous_report_url === null;
 }
 
 function finite(value) {
@@ -301,8 +310,8 @@ function renderMovers(seo, index) {
   </section>`;
 }
 
-function renderSeo(seo, index) {
-  if (!record(seo)) return `<section class="panel missing-data" aria-labelledby="seo-heading"><span class="eyebrow">SEARCH PERFORMANCE</span><h2 id="seo-heading">暂不能判断搜索增长</h2><p>本次没有可用的 Search Console 指标，无法判断搜索曝光、点击、点击率或平均位置的变化。</p><p class="section-note">页面检查可以发现技术问题，但不能替代真实搜索效果数据。详情见数据来源与已知缺口。</p></section>`;
+function renderSeo(seo, index, inspectionOnly = false) {
+  if (!record(seo)) return `<section class="panel missing-data" aria-labelledby="seo-heading"><span class="eyebrow">SEARCH PERFORMANCE</span><h2 id="seo-heading">${inspectionOnly ? 'Google 搜索效果尚未接入' : '暂不能判断搜索增长'}</h2><p>${inspectionOnly ? '本报告为页面 SEO 巡检，暂不能判断搜索增长。' : ''}本次没有可用的 Search Console 指标，无法判断搜索曝光、点击、点击率或平均位置的变化。</p><p class="section-note">页面检查可以发现技术问题，但不能替代真实搜索效果数据。详情见数据来源与已知缺口。</p></section>`;
   return `<section class="panel" aria-labelledby="seo-heading"><div class="section-heading"><div><span class="eyebrow">SEARCH PERFORMANCE</span><h2 id="seo-heading">搜索表现</h2></div><span class="section-meta">数据截至 ${escape(dateLabel(seo.data_through))}</span></div>
     ${renderRanges(seo.comparisons)}${renderMetrics(seo.comparisons)}
     <div class="subsection-heading"><h3>每天的变化</h3><span>统计时区：${escape(string(seo.data_timezone) || '未提供')}</span></div>
@@ -329,18 +338,19 @@ function renderPageChanges(changes, index) {
     </tbody></table></div></div></details>`;
 }
 
-function renderChecks(checks, index) {
+function renderChecks(checks, index, baseline = false) {
   const findings = list(checks?.findings).filter(record);
   const severity = { high: ['高', 'negative'], medium: ['中', 'warning'], low: ['低', 'neutral'] };
-  const states = { new: '新增', ongoing: '持续', resolved: '本次未见', unverified: '待核验' };
+  const states = { new: '首次发现', ongoing: '持续', resolved: '本次未见', unverified: '待核验' };
   const counts = [
-    ['已检查页面', checks?.checked_pages], ['新增问题', checks?.new_count],
+    ['已检查页面', checks?.checked_pages], ['首次发现的问题', checks?.new_count],
     ['持续问题', checks?.ongoing_count], ['本次未见', checks?.resolved_count],
   ];
   const fallback = finite(checks?.checked_pages) && checks.checked_pages > 0
     ? `本次检查的 ${number(checks.checked_pages)} 个页面没有记录到问题。此结论仅覆盖本次检查范围。`
     : '本次未提供有效的页面检查结果。';
   return `<section class="panel" aria-labelledby="checks-heading"><div class="section-heading"><div><span class="eyebrow">SITE HEALTH</span><h2 id="checks-heading">页面检查</h2></div>${finite(checks?.attempted_pages) ? `<span class="section-meta">尝试访问 ${number(checks.attempted_pages)} 页</span>` : ''}</div>
+    ${baseline ? `<p class="section-note">${FIRST_INSPECTION_NOTE}</p>` : ''}
     <div class="check-counts">${counts.map(([label, value]) => `<div><span>${label}</span><strong>${number(value)}</strong></div>`).join('')}</div>
     ${findings.length ? `<div class="findings">${findings.map((finding) => {
       const [level, tone] = severity[finding.severity] ?? severity.low;
@@ -382,7 +392,7 @@ function renderSources(report) {
     ${unique.length ? `<ul class="limitations">${unique.map((limitation) => `<li>${escape(limitation)}</li>`).join('')}</ul>` : '<p class="section-note">本次未记录额外的数据缺口。以下列出实际使用的数据源。</p>'}
     <div class="source-list">${sources.map((source) => {
       const [label, tone] = SOURCE_STATES[source.status] || ['状态未知', 'neutral'];
-      return `<article class="source"><div class="source-heading"><h3>${escape(SOURCE_NAMES[source.id] || source.id || '未命名来源')}</h3><span class="badge ${tone}">${label}</span></div><dl><div><dt>数据截至</dt><dd>${escape(dateLabel(source.data_through))}</dd></div><div><dt>统计时区</dt><dd>${escape(string(source.data_timezone) || '未提供')}</dd></div><div><dt>采集时间</dt><dd>${escape(timestampLabel(source.collected_at, report.site?.timezone))}</dd></div></dl>${source.reason ? `<p class="source-reason">${escape(source.reason)}</p>` : ''}</article>`;
+      return `<article class="source"><div class="source-heading"><h3>${escape(SOURCE_NAMES[source.id] || source.id || '未命名来源')}</h3><span class="badge ${tone}">${label}</span></div><dl><div><dt>数据截至</dt><dd>${escape(source.status === 'not_configured' ? '尚未接入' : dateLabel(source.data_through))}</dd></div><div><dt>统计时区</dt><dd>${escape(string(source.data_timezone) || '未提供')}</dd></div><div><dt>采集时间</dt><dd>${escape(timestampLabel(source.collected_at, report.site?.timezone))}</dd></div></dl>${source.reason ? `<p class="source-reason">${escape(source.reason)}</p>` : ''}</article>`;
     }).join('') || '<p class="empty">未提供数据源状态。</p>'}</div>
     ${record(report.seo?.coverage) && Object.keys(report.seo.coverage).length ? `<details class="detail-block"><summary>采集范围与覆盖情况</summary><pre>${json(report.seo.coverage)}</pre></details>` : ''}
   </section>`;
@@ -419,7 +429,8 @@ export function renderReport(report) {
   }
   const site = record(report.site) ? report.site : {};
   const name = string(site.name) || 'NocoBase';
-  const title = `${name} 增长日报`;
+  const inspectionOnly = pageInspectionOnly(report);
+  const title = `${name} ${inspectionOnly ? '页面 SEO 巡检' : '增长日报'}`;
   const evidence = list(report.evidence);
   const index = evidenceIndex(evidence);
   const limited = report.report_status !== 'complete' || !record(report.seo);
@@ -438,12 +449,12 @@ export function renderReport(report) {
 </head>
 <body>
   <div class="shell">
-    <nav class="topbar" aria-label="报告导航"><div class="brand"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="17" width="7" height="13" rx="2" fill="currentColor" opacity=".4"/><rect x="12" y="10" width="7" height="20" rx="2" fill="currentColor" opacity=".7"/><rect x="22" y="2" width="7" height="28" rx="2" fill="currentColor"/></svg><span>${escape(name)} / 增长观察</span></div><div class="top-links">${optionalLink(site.url, '访问网站 ↗')}${optionalLink(report.history?.index_url, '历史报告 ↗')}</div></nav>
-    <header class="hero"><div class="hero-top"><div><span class="eyebrow">GROWTH DAILY</span><h1>${escape(title)}</h1><p class="hero-date">${escape(dateLabel(report.report_date))} · 搜索、站点与下一步行动</p></div><div class="hero-status"><span class="badge ${limited ? 'warning' : 'positive'}">${limited ? '数据受限' : '已完成'}</span></div></div><div class="hero-summary"><h2>本次观察</h2><p>${escape(summary)}</p></div><div class="hero-freshness"><span>生成于 <strong>${escape(timestampLabel(report.generated_at, site.timezone))}</strong></span><span>搜索数据截至 <strong>${escape(dateLabel(report.seo?.data_through))}</strong></span><span>分析模型 <strong>${escape(string(report.run?.model) || '未提供')}</strong></span></div></header>
+    <nav class="topbar" aria-label="报告导航"><div class="brand"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="17" width="7" height="13" rx="2" fill="currentColor" opacity=".4"/><rect x="12" y="10" width="7" height="20" rx="2" fill="currentColor" opacity=".7"/><rect x="22" y="2" width="7" height="28" rx="2" fill="currentColor"/></svg><span>${escape(name)} / ${inspectionOnly ? '页面巡检' : '增长观察'}</span></div><div class="top-links">${optionalLink(site.url, '访问网站 ↗')}${optionalLink(report.history?.index_url, '历史报告 ↗')}</div></nav>
+    <header class="hero"><div class="hero-top"><div><span class="eyebrow">${inspectionOnly ? 'PAGE SEO CHECK' : 'GROWTH DAILY'}</span><h1>${escape(title)}</h1><p class="hero-date">${escape(dateLabel(report.report_date))} · ${inspectionOnly ? '页面检查、变化与下一步行动' : '搜索、站点与下一步行动'}</p></div><div class="hero-status"><span class="badge ${limited ? 'warning' : 'positive'}">${limited ? '数据受限' : '已完成'}</span></div></div><div class="hero-summary"><h2>${inspectionOnly ? 'AI 页面巡检观察' : '本次观察'}</h2><p>${escape(summary)}</p></div><div class="hero-freshness"><span>生成于 <strong>${escape(timestampLabel(report.generated_at, site.timezone))}</strong></span>${inspectionOnly ? '<span>Google 搜索效果 <strong>尚未接入</strong></span>' : `<span>搜索数据截至 <strong>${escape(dateLabel(report.seo?.data_through))}</strong></span>`}<span>分析模型 <strong>${escape(string(report.run?.model) || '未提供')}</strong></span></div></header>
     <main>
-      ${renderSeo(report.seo, index)}
+      ${renderSeo(report.seo, index, inspectionOnly)}
       ${renderAnalytics(report.analytics)}
-      ${renderChecks(report.site_checks, index)}
+      ${renderChecks(report.site_checks, index, firstInspection(report))}
       ${renderHypotheses(report.insights, index)}
       ${renderActions(report.insights, index)}
       ${renderSources(report)}
@@ -504,17 +515,19 @@ export function renderMarkdown(report) {
   const evidence = list(report.evidence);
   const index = evidenceIndex(evidence);
   const insights = record(report.insights) ? report.insights : {};
+  const inspectionOnly = pageInspectionOnly(report);
   const limited = report.report_status !== 'complete' || !record(report.seo);
   const lines = [
-    `# ${markdown(name, true)} 增长日报 · ${markdown(dateLabel(report.report_date))}`,
+    `# ${markdown(name, true)} ${inspectionOnly ? '页面 SEO 巡检' : '增长日报'} · ${markdown(dateLabel(report.report_date))}`,
     '',
     `- 报告状态：${limited ? '数据受限' : '已完成'}`,
     `- 生成时间：${markdown(timestampLabel(report.generated_at, report.site?.timezone))}`,
-    `- 搜索数据截至：${markdown(dateLabel(report.seo?.data_through))}；统计时区：${markdown(string(report.seo?.data_timezone) || '未提供', true)}`,
+    inspectionOnly ? '- Google 搜索效果尚未接入；本报告仅覆盖页面检查与变化。'
+      : `- 搜索数据截至：${markdown(dateLabel(report.seo?.data_through))}；统计时区：${markdown(string(report.seo?.data_timezone) || '未提供', true)}`,
     `- 分析模型：${markdown(string(report.run?.model) || '未提供', true)}`,
     '- 完整内容：[下载 HTML 报告](report.html) · [结构化数据](report.json)',
     '',
-    '## 本次观察',
+    inspectionOnly ? '## AI 页面巡检观察' : '## 本次观察',
     '',
     markdown(string(insights.summary) || (record(report.seo)
       ? '最近 7 天与 28 天的搜索表现已整理，请结合数据与证据判断优先事项。'
@@ -545,10 +558,11 @@ export function renderMarkdown(report) {
       '', markdownComparisons(report.analytics.comparisons, ANALYTICS_METRICS));
   }
   const checks = record(report.site_checks) ? report.site_checks : {};
-  lines.push('', '## 重点页面检查', '',
-    `已检查 ${number(checks.checked_pages)} 页${finite(checks.attempted_pages) ? ` / 尝试 ${number(checks.attempted_pages)} 页` : ''}；新增 ${number(checks.new_count)}，持续 ${number(checks.ongoing_count)}，本次未见 ${number(checks.resolved_count)}。`);
+  lines.push('', '## 重点页面检查', '');
+  if (firstInspection(report)) lines.push(FIRST_INSPECTION_NOTE, '');
+  lines.push(`已检查 ${number(checks.checked_pages)} 页${finite(checks.attempted_pages) ? ` / 尝试 ${number(checks.attempted_pages)} 页` : ''}；首次发现的问题 ${number(checks.new_count)}，持续 ${number(checks.ongoing_count)}，本次未见 ${number(checks.resolved_count)}。`);
   const findings = list(checks.findings).filter(record);
-  const states = { new: '新增', ongoing: '持续', resolved: '本次未见', unverified: '待核验' };
+  const states = { new: '首次发现', ongoing: '持续', resolved: '本次未见', unverified: '待核验' };
   const severities = { high: '高', medium: '中', low: '低' };
   if (findings.length) {
     for (const item of findings) {
@@ -593,7 +607,7 @@ export function renderMarkdown(report) {
   for (const limitation of [...new Set(limitations)]) lines.push(`- ${markdown(limitation, true)}`);
   for (const source of list(report.sources).filter(record)) {
     const label = SOURCE_NAMES[source.id] || string(source.id) || '未命名来源';
-    lines.push(`- ${markdown(label, true)}：${SOURCE_STATES[source.status]?.[0] || '状态未知'}；数据截至 ${markdown(dateLabel(source.data_through))}${source.reason ? `；${markdown(source.reason, true)}` : ''}。`);
+    lines.push(`- ${markdown(label, true)}：${SOURCE_STATES[source.status]?.[0] || '状态未知'}；数据截至 ${markdown(source.status === 'not_configured' ? '尚未接入' : dateLabel(source.data_through))}${source.reason ? `；${markdown(source.reason, true)}` : ''}。`);
   }
   if (evidence.filter(record).length) {
     lines.push('', '## 证据', '');
