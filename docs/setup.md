@@ -1,6 +1,6 @@
 # 部署每日 NocoBase 增长报告
 
-本项目把代码和工作流保存在公共仓库，把真实指标、分析、HTML 和运行记录保存在单独的私有仓库。首次部署依次完成：确认两个仓库与真实 repository ID、配置三个凭证、运行 preflight、运行一次真实 report，最后启用每日定时任务。
+本项目把代码和工作流保存在公共仓库，把真实指标、分析、HTML 和运行记录保存在单独的私有仓库。首次部署依次完成：确认两个仓库与真实 repository ID、配置三个凭证及实际模型 endpoint / model ID、运行 preflight、运行一次真实 report，最后启用每日定时任务。
 
 ## 1. 准备两个仓库
 
@@ -21,9 +21,9 @@ gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visib
 
 归档器在读取前、写入 Git 对象前和更新分支前重新核对这些条件。目标不存在、改为公开、被转移、ID 不一致或接口无法确认时，流程停止。
 
-## 2. 设置生产环境与三个凭证
+## 2. 设置生产环境、凭证与模型接口
 
-当前代码仓库已建立 `growth-production` 环境并保存仅允许 `main` 分支的规则；下面的环境创建步骤供重新部署时参考。首次使用请在现有环境中添加三个凭证。
+当前代码仓库已建立 `growth-production` 环境并保存仅允许 `main` 分支的规则；下面的环境创建步骤供重新部署时参考。首次使用请在现有环境中添加三个凭证，并配置实际模型接口。
 
 在公共代码仓库打开 **Settings → Environments**，创建 `growth-production`。其 **Deployment branches and tags** 选择 **Selected branches and tags**，只添加类型为 **Branch** 的 `main` 规则。这样环境凭证仅供选定分支使用；这是 GitHub 提供的环境分支限制机制。[GitHub 环境文档](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 
@@ -34,6 +34,15 @@ gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visib
 | `REPORTS_TOKEN` | 仅授权私有报告仓库的 fine-grained PAT | `preflight`、`prepare`、`publish`、`failure` |
 | `GOOGLE_CREDENTIALS_JSON` | Google 服务账户的完整 JSON 凭证 | `collect` |
 | `DEEPSEEK_API_KEY` | 用于本项目的 DeepSeek API key | `analyze` |
+
+在同一环境的 **Environment variables** 中配置模型服务；本地运行时使用同名环境变量：
+
+| Variable | 用途 | 未设置时的默认值 |
+| --- | --- | --- |
+| `DEEPSEEK_BASE_URL` | 服务商提供的 Anthropic Messages 兼容 Base URL | `https://api.deepseek.com/anthropic` |
+| `DEEPSEEK_MODEL` | 该服务商接受的精确模型 ID | `deepseek-flash` |
+
+这两项属于非凭证配置。自定义网关应同时核对 endpoint、model ID 和对应 Key；不能把第三方 Key 配给默认官方 endpoint。Variables 可能显示在公开 Actions 的步骤环境中，因此 URL 不得携带 Key、用户名、密码或其它凭证。
 
 三个 secret 都不放入 job 级别环境变量。`preflight` 只接收 `REPORTS_TOKEN` 的真实值；另外两项仅传入存在与否的布尔标记。Claude 子进程只接收模型凭证和运行所需的白名单变量。
 
@@ -46,7 +55,9 @@ gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visib
 - **Contents: Read and write**：读取历史、创建 Git tree/commit、更新私有报告仓的 `develop`。
 - **Metadata: Read-only**：核对目标仓库身份与私有状态。
 
-设定适合维护周期的有效期，过期前更新 `growth-production` 中的 secret。仓库筛选和权限选择遵循 GitHub 的 fine-grained PAT 机制。[GitHub PAT 文档](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+可使用 [预填 Token 创建表单](https://github.com/settings/personal-access-tokens/new?name=NocoBase%20growth%20reports&description=Archive%20daily%20NocoBase%20growth%20reports&target_name=gchust&expires_in=90&contents=write&metadata=read)。链接预填名称、owner、权限和 90 天有效期；打开链接后仍需选择 **Only select repositories → nocobase-growth-reports**，核对后生成 Token，并直接保存到 `growth-production` 的 `REPORTS_TOKEN` Secret。
+
+90 天是本项目的初始维护选择，可按维护周期调整；过期前更新环境 Secret。仓库筛选、权限和预填参数遵循 GitHub 的 fine-grained PAT 机制。[GitHub PAT 文档](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 
 ### GOOGLE_CREDENTIALS_JSON
 
@@ -61,13 +72,19 @@ gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visib
 
 GSC 域名属性可能包含多个主机名；GA4 的 hostname 限定与 GSC 属性范围应在阅读报告时一并考虑。报告保留各数据源自己的时区和有效截止日。
 
-### DEEPSEEK_API_KEY 与 Claude Code
+### DeepSeek endpoint、模型 ID、Key 与 Claude Code
 
 工作流在接收业务数据之前，从官方 npm registry 安装固定的 `@anthropic-ai/claude-code@2.1.296`。该安装步骤没有上述三个凭证。升级版本时同时修改工作流与 `sites/nocobase.json`，并通过 CI。
 
-当前配置发送的 API model id 是 `deepseek-flash`，接口地址为 `https://api.deepseek.com/anthropic`，与 DeepSeek 官方 Anthropic 兼容接口示例一致。[DeepSeek 接口文档](https://api-docs.deepseek.com/guides/anthropic_api/)
+站点文件的默认 API model ID 是 `deepseek-flash`，默认接口地址为 `https://api.deepseek.com/anthropic`，与 DeepSeek 官方 Anthropic 兼容接口示例一致。[DeepSeek 接口文档](https://api-docs.deepseek.com/guides/anthropic_api/)
 
-准备可调用该模型的 DeepSeek API key，并确保账户可用于 API 请求。报告分析所需的指标和页面检查信息会发送到这个 DeepSeek 账户。Claude 不拥有文件、终端或 MCP 工具；模型输出只负责分析字段，指标由代码计算，JSON 在本地通过闭合 schema 校验后才进入报告。
+如果使用自定义网关，在 `growth-production` 设置 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL`。例如你的服务将模型命名为 `deepseek-v4.1-flash`，就填写这个精确 ID；不根据展示名称自动猜测或改写。非空环境变量优先于 `sites/nocobase.json`，未设置或空白时使用文件默认值。`preflight` 和 `prepare` 使用同一解析规则；`prepare` 把结果保存到本次私有工作目录，后续分析使用已保存的配置。
+
+`DEEPSEEK_BASE_URL` 映射到 Claude Code 的 `ANTHROPIC_BASE_URL`，`DEEPSEEK_MODEL` 同时用于 `--model` 和各个模型别名。填写完整 HTTPS Base URL，可以带网关的路径前缀和端口；不附加查询参数、fragment、用户名或密码，也不要把完整 `/v1/messages` 请求地址当作 Base URL。校验失败会在采集前以固定错误码停止。
+
+**协议必须匹配。** 自定义地址需支持 Anthropic Messages 请求及流式响应。只提供 OpenAI `/chat/completions` 的服务需要额外的协议转换，不能只替换 URL。本项目没有内置这种转换器。应使用服务商给 Claude Code 的接入地址；详见 [Claude Code 网关协议](https://code.claude.com/docs/en/llm-gateway-protocol)。
+
+准备可调用该 endpoint / 模型的 Key，并确保账户可用于 API 请求。报告分析所需的指标和页面检查信息会发送到所配置的服务。当前将 `DEEPSEEK_API_KEY` 同时用于 Claude 的 Bearer 和 `x-api-key` 凭证变量；如果网关要求不同的凭证方式，应先确认其接入文档。Claude 不拥有文件、终端或 MCP 工具；模型输出只负责分析字段，指标由代码计算，JSON 在本地通过闭合 schema 校验后才进入报告。
 
 `preflight` 不发起 Google 或模型请求。首次真实 `report` 才能验证 Google 权限、模型账户和当前 Claude Code / DeepSeek 组合的实际兼容性。
 
@@ -75,7 +92,7 @@ GSC 域名属性可能包含多个主机名；GA4 的 hostname 限定与 GSC 属
 
 将配置和工作流合入公共仓库的 `main` 后，在 **Actions → NocoBase growth report → Run workflow** 操作：
 
-1. 分支选 `main`，`mode` 保持默认 `preflight`。它只核对配置、目标私有状态及三个 secret 是否存在。
+1. 分支选 `main`，`mode` 保持默认 `preflight`。它核对 endpoint / model ID 的配置格式、目标私有状态及三个 secret 是否存在，不测试模型或 Google 的网络连通性。
 2. preflight 成功后，手动选择 `mode: report`，`as_of` 留空。这次运行会读取 Google 数据、检查重点页、调用 DeepSeek 并归档真实报告。
 3. 在私有报告仓库确认 `state/latest.json` 和它指向的报告已经出现。
 4. 在公共代码仓库 **Settings → Secrets and variables → Actions → Variables**，将已建立的仓库变量 `GROWTH_ENABLED` 从 `false` 改为小写字符串 `true`。
@@ -115,6 +132,7 @@ GitHub 文件页中的 HTML 是代码文件，本项目采用下载后本地查�
 | `CONFIG_REPORTS_REPOSITORY_ID_REQUIRED` | 创建并核实私有仓库后填写真实数字 ID |
 | `ARCHIVE_TARGET_NOT_FOUND`、`ARCHIVE_TARGET_MISMATCH` | 核对仓库名称、ID、PAT 的目标仓库和访问权 |
 | `ARCHIVE_TARGET_NOT_PRIVATE`、`ARCHIVE_TARGET_DISABLED` | 恢复目标私有且可写的状态，再手动运行 |
+| `CONFIG_INVALID_MODEL_ENDPOINT`、`CONFIG_INVALID_MODEL` | 核对 `DEEPSEEK_BASE_URL` 为无凭证的完整 HTTPS Base URL、`DEEPSEEK_MODEL` 为服务商接受的模型 ID |
 | Google 凭证、授权或 API 错误 | 核对服务账户 JSON、属性授权、已启用的 API 与日期范围 |
 | 模型凭证、超时或 JSON 校验错误 | 核对 DeepSeek 账户、API model id、Claude 版本和固定错误代码；校验失败的分析不会发布为成功报告 |
 | 发布失败 | workflow 尝试归档已有的六个文件；仍失败时保留失败状态，可通过 GitHub 重跑产生新的 attempt |

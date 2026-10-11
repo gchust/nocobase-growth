@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { validDate, safeUrl, dateInZone, validateConfig } from '../src/config.mjs';
+import { validDate, safeUrl, dateInZone, validateConfig, applyModelOverrides, loadConfig } from '../src/config.mjs';
 import { modelEnvironment, parseModelResult, analyzeReport, executeCaptured } from '../src/analyze.mjs';
 import { validateAnalysis } from '../src/validate.mjs';
 import { parsePage, fetchPage, compareChecks, selectPages } from '../src/technical.mjs';
 import { makeDemoReport } from '../src/demo.mjs';
-import { ROOT, workDirectory, prepareRun, collectRun, analyzeRun, publishRun, recordFailure, saveFailure } from '../src/pipeline.mjs';
+import { ROOT, workDirectory, preflight, prepareRun, collectRun, analyzeRun, publishRun, recordFailure, saveFailure } from '../src/pipeline.mjs';
 import { main } from '../src/cli.mjs';
 
 const original = JSON.parse(await readFile(join(ROOT, 'sites/nocobase.json'), 'utf8'));
@@ -24,12 +24,101 @@ test('date validation and source timezone do not accept normalized impossible da
   assert.equal(dateInZone(new Date('2026-10-11T01:00:00Z'), 'Asia/Shanghai'), '2026-10-11');
 });
 
-test('configuration rejects a lookalike data destination or model endpoint', () => {
+test('configuration keeps site hosts restricted while allowing custom HTTPS model endpoints', () => {
   assert.ok(validateConfig(config));
-  assert.throws(() => validateConfig({ ...config, model: { ...config.model, provider_base_url: 'https://evil.example' } }), /UNAPPROVED_MODEL_ENDPOINT/);
+  assert.ok(validateConfig({ ...config, model: { ...config.model, provider_base_url: 'https://gateway.example:8443/anthropic', id: 'provider/deepseek-v4.1_flash:fast' } }));
+  assert.ok(validateConfig({ ...config, model: { ...config.model, id: 'provider/model[1m]' } }));
+  assert.throws(() => validateConfig({ ...config, model: { ...config.model, provider_base_url: 'http://gateway.example/anthropic' } }), /CONFIG_INVALID_MODEL_ENDPOINT/);
   assert.equal(safeUrl('https://www.nocobase.com.evil.example/en', config.allowed_hosts), null);
   assert.equal(safeUrl('https://key@www.nocobase.com/en', config.allowed_hosts), null);
   assert.equal(safeUrl('http://127.0.0.1', config.allowed_hosts), null);
+});
+
+test('model overrides are immutable and absent or blank values preserve site defaults', async () => {
+  const before = structuredClone(config);
+  const overridden = applyModelOverrides(config, { DEEPSEEK_BASE_URL: 'https://gateway.example:8443/provider/anthropic', DEEPSEEK_MODEL: 'provider/model-v4.1:flash' });
+  assert.notEqual(overridden, config);
+  assert.notEqual(overridden.model, config.model);
+  assert.equal(overridden.model.provider_base_url, 'https://gateway.example:8443/provider/anthropic');
+  assert.equal(overridden.model.id, 'provider/model-v4.1:flash');
+  assert.deepEqual(config, before);
+  for (const env of [{}, { DEEPSEEK_BASE_URL: '', DEEPSEEK_MODEL: '' }, { DEEPSEEK_BASE_URL: ' \t\n ', DEEPSEEK_MODEL: ' \t\n ' }]) {
+    assert.deepEqual(applyModelOverrides(config, env).model, config.model);
+    assert.deepEqual((await loadConfig(join(ROOT, 'sites/nocobase.json'), { env })).model, original.model);
+  }
+  const loaded = await loadConfig(join(ROOT, 'sites/nocobase.json'), { env: { DEEPSEEK_BASE_URL: 'https://gateway.example/anthropic', DEEPSEEK_MODEL: 'provider/name:1.0' } });
+  assert.equal(loaded.model.provider_base_url, 'https://gateway.example/anthropic');
+  assert.equal(loaded.model.id, 'provider/name:1.0');
+});
+
+test('preflight rejects unsafe endpoint or model overrides before repository access without leaking values', async () => {
+  const endpoints = [
+    'http://PRIVATE_CANARY.example/anthropic', 'https://user:PRIVATE_CANARY@gateway.example/anthropic',
+    'https://@gateway.example', 'https://gateway.example/anthropic?key=PRIVATE_CANARY', 'https://gateway.example/?',
+    'https://gateway.example/#PRIVATE_CANARY', 'https://gateway.example/#',
+    'https://gateway.example/\nPRIVATE_CANARY', 'https://gateway.example/\u0085PRIVATE_CANARY',
+    '//PRIVATE_CANARY.example/anthropic', 'PRIVATE_CANARY.example/anthropic', '/PRIVATE_CANARY',
+    'https:/PRIVATE_CANARY.example', 'https:///PRIVATE_CANARY.example', 'https://gateway.example\\PRIVATE_CANARY',
+    'https://gateway.example/' + 'a'.repeat(2048),
+  ];
+  let verifications = 0;
+  const verify = async () => { verifications++; };
+  for (const endpoint of endpoints) {
+    await assert.rejects(preflight({ env: { DEEPSEEK_BASE_URL: endpoint }, verify }), error => {
+      assert.equal(error.code, 'CONFIG_INVALID_MODEL_ENDPOINT');
+      assert.equal(error.message, 'CONFIG_INVALID_MODEL_ENDPOINT');
+      assert.equal(error.cause, undefined);
+      assert.ok(!JSON.stringify(error).includes('PRIVATE_CANARY'));
+      return true;
+    });
+  }
+  for (const model of ['provider/PRIVATE CANARY', 'provider/PRIVATE\nCANARY', 'a'.repeat(201)]) {
+    await assert.rejects(preflight({ env: { DEEPSEEK_MODEL: model }, verify }), error => {
+      assert.equal(error.code, 'CONFIG_INVALID_MODEL');
+      assert.equal(error.message, 'CONFIG_INVALID_MODEL');
+      return true;
+    });
+  }
+  await assert.rejects(prepareRun({ config, env: { DEEPSEEK_BASE_URL: endpoints[0] }, verify, readPrevious: async () => { throw Error('must not read history'); } }), /CONFIG_INVALID_MODEL_ENDPOINT/);
+  assert.equal(verifications, 0);
+});
+
+test('prepare persists model overrides and later analysis uses those exact settings with isolated credentials', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'growth-custom-model-test-'));
+  const endpoint = 'https://gateway.example:8443/tenant/anthropic';
+  const model = 'provider/deepseek-v4.1_flash:fast';
+  const env = { GROWTH_WORK_DIR: dir, GROWTH_CODE_SHA: '1'.repeat(40), DEEPSEEK_BASE_URL: endpoint, DEEPSEEK_MODEL: model,
+    DEEPSEEK_API_KEY: 'synthetic-model-key', REPORTS_TOKEN: 'never-github', GOOGLE_CREDENTIALS_JSON: 'never-google', GITHUB_OUTPUT: '/public-output' };
+  const before = structuredClone(config);
+  try {
+    await prepareRun({ env, config, verify: async () => {}, readPrevious: async () => previous });
+    const saved = JSON.parse(await readFile(join(dir, 'context.json'), 'utf8'));
+    assert.equal(saved.config.model.provider_base_url, endpoint);
+    assert.equal(saved.config.model.id, model);
+    assert.equal(saved.run.model, model);
+    assert.deepEqual(config, before);
+    await collectRun({ env,
+      google: async () => ({ sources: demo.sources.slice(0, 2), seo: demo.seo, analytics: null, evidence: [demo.evidence[0]] }),
+      technical: async () => ({ source: demo.sources[2], site_checks: demo.site_checks, evidence: [demo.evidence[1]] }) });
+    // Environment changes after prepare must not redirect this run's analysis.
+    env.DEEPSEEK_BASE_URL = 'https://later.example/anthropic';
+    env.DEEPSEEK_MODEL = 'later/model';
+    const calls = [];
+    const execute = async (command, args, opts) => {
+      calls.push({ command, args, opts });
+      if (args[0] === '--version') return { code: 0, stdout: config.model.claude_code_version + ' (Claude Code)', stderr: '' };
+      return { code: 0, stdout: JSON.stringify({ type: 'result', subtype: 'success', result: JSON.stringify(demo.insights) }), stderr: '' };
+    };
+    const report = await analyzeRun({ env, analyzer: (facts, history, savedConfig, options) => analyzeReport(facts, history, savedConfig, { ...options, execute }) });
+    assert.equal(report.run.model, model);
+    assert.equal(calls[1].args[calls[1].args.indexOf('--model') + 1], model);
+    for (const { opts } of calls) {
+      assert.equal(opts.env.ANTHROPIC_BASE_URL, endpoint);
+      for (const key of ['ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL']) assert.equal(opts.env[key], model);
+      assert.equal(opts.env.ANTHROPIC_API_KEY, 'synthetic-model-key');
+      for (const key of ['REPORTS_TOKEN', 'GOOGLE_CREDENTIALS_JSON', 'GITHUB_OUTPUT', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_MODEL']) assert.equal(opts.env[key], undefined);
+    }
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 test('model environment excludes Google, GitHub and public Actions output channels', () => {

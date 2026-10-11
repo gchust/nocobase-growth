@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile, lstat, chmod } from 'node:fs/promises';
 import { resolve, join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { SafeError, loadConfig, dateInZone, validDate } from './config.mjs';
+import { SafeError, loadConfig, applyModelOverrides, validateConfig, dateInZone, validDate } from './config.mjs';
 import { REPORTS_BRANCH, verifyPrivateRepository, readPreviousState, archiveRun } from './archive.mjs';
 import { collectGoogle } from './google.mjs';
 import { collectTechnical } from './technical.mjs';
@@ -44,7 +44,7 @@ function archiveOptions(config, env) {
 }
 
 export async function preflight({ env = process.env, verify = verifyPrivateRepository } = {}) {
-  const config = await loadConfig(join(ROOT, 'sites/nocobase.json'));
+  const config = await loadConfig(join(ROOT, 'sites/nocobase.json'), { env });
   if (!(env.GOOGLE_CREDENTIALS_JSON || env.GOOGLE_CREDENTIALS_PRESENT === 'true')) throw new SafeError('GOOGLE_CREDENTIALS_REQUIRED');
   if (!(env.DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY_PRESENT === 'true')) throw new SafeError('MODEL_CREDENTIALS_REQUIRED');
   await verify(archiveOptions(config, env));
@@ -52,7 +52,9 @@ export async function preflight({ env = process.env, verify = verifyPrivateRepos
 }
 
 export async function prepareRun({ env = process.env, now = new Date(), config: suppliedConfig, verify = verifyPrivateRepository, readPrevious = readPreviousState } = {}) {
-  const config = suppliedConfig || await loadConfig(join(ROOT, 'sites/nocobase.json'));
+  const config = suppliedConfig
+    ? validateConfig(applyModelOverrides(suppliedConfig, env))
+    : await loadConfig(join(ROOT, 'sites/nocobase.json'), { env });
   if (env.AS_OF && !validDate(env.AS_OF)) throw new SafeError('INVALID_AS_OF_DATE');
   if (env.GITHUB_ACTIONS === 'true' && (env.GITHUB_REPOSITORY !== 'gchust/nocobase-growth' || env.GITHUB_REF !== 'refs/heads/main')) throw new SafeError('UNTRUSTED_WORKFLOW_REF');
   const options = archiveOptions(config, env);

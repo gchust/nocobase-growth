@@ -38,7 +38,8 @@ flowchart TD
 1. 确认两个仓库：公共代码仓以 `main` 为默认分支；报告仓保持 **Private**，以现有的 `develop` 为默认分支。
 2. 报告仓真实数字 ID `1414200278` 已写入 `sites/nocobase.json`；仅在重新创建报告仓时重新核对并更新。
 3. 公共仓库的 `growth-production` 环境已建立，仅允许 `main` 分支；在其中配置
-   `REPORTS_TOKEN`、`GOOGLE_CREDENTIALS_JSON`、`DEEPSEEK_API_KEY`。
+   三个 Secrets：`REPORTS_TOKEN`、`GOOGLE_CREDENTIALS_JSON`、`DEEPSEEK_API_KEY`；
+   自定义模型服务时，再配置两个 Variables：`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`。
 4. 手动运行 `preflight`，再运行一次 `report` 并核对真实数据。
 5. 把仓库变量 `GROWTH_ENABLED` 设为 `true`，启用上海时间每日 **09:17** 的运行。
 
@@ -61,7 +62,8 @@ npm run demo
 
 实际本地运行需安装配置中固定版本的 Claude Code，设置上述三个环境变量
 和当前代码的 `GROWTH_CODE_SHA`，再执行 `npm run report`。无人值守工作流已按
-阶段隔离凭证；本地也不要把凭证写进仓库。
+阶段隔离凭证；本地也不要把凭证写进仓库。自定义服务同样通过
+`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 环境变量配置。
 
 ## 报告内容
 
@@ -108,10 +110,15 @@ GA4 hostname 范围可能不同，报告保留各自口径。GA4 没有 GSC 式�
 或完整审计脚本。
 
 Claude Code 固定 **2.1.296**，使用 `--bare`，禁用工具与 MCP，显式读取
-日报规则。模型 ID 为 `deepseek-flash`，全部 Claude 模型别名也映射到同一个
-ID，避免意外切换模型。默认使用 DeepSeek 的官方 Anthropic 兼容端点；
-模型输入包含报告所需的业务指标与页面证据。模型输出在本地通过闭合 schema
-校验，不依赖提供商原生 JSON Schema 支持。
+日报规则。`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 可覆盖站点文件中的默认
+endpoint 和模型 ID；未设置时使用 `https://api.deepseek.com/anthropic` 与
+`deepseek-flash`。全部 Claude 模型别名使用本次配置中的同一个 ID。
+
+自定义 endpoint 必须为 HTTPS，并提供 Claude Code 所需的 Anthropic Messages
+兼容协议；只有 OpenAI Chat Completions 接口的地址不能直接替代。应填写服务商
+提供的 Base URL 和精确模型 ID，Key 保存在 Secret 中，不写入 URL。
+本次配置在准备阶段保存，模型输入包含报告所需的业务指标与页面证据，会发送到
+所选服务。模型输出在本地通过闭合 schema 校验，不依赖提供商原生 JSON Schema 支持。
 
 [Claude Code 程序化运行](https://code.claude.com/docs/en/headless) ·
 [DeepSeek 集成说明](https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code/) ·

@@ -66,6 +66,8 @@ jobs:
 
       - name: Check destination and credential presence
         env:
+          DEEPSEEK_BASE_URL: ${{ vars.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL }}
           REPORTS_TOKEN: ${{ secrets.REPORTS_TOKEN }}
           GOOGLE_CREDENTIALS_PRESENT: ${{ secrets.GOOGLE_CREDENTIALS_JSON != '' }}
           DEEPSEEK_API_KEY_PRESENT: ${{ secrets.DEEPSEEK_API_KEY != '' }}
@@ -74,6 +76,8 @@ jobs:
       - name: Prepare verified private run
         if: ${{ github.event_name == 'schedule' || inputs.mode == 'report' }}
         env:
+          DEEPSEEK_BASE_URL: ${{ vars.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL }}
           REPORTS_TOKEN: ${{ secrets.REPORTS_TOKEN }}
         run: node src/cli.mjs prepare
 

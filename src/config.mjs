@@ -28,6 +28,29 @@ export function safeUrl(value, allowedHosts) {
   } catch { return null; }
 }
 
+/** Resolve optional model settings without changing the supplied site config. */
+export function applyModelOverrides(config, env = process.env) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return config;
+  const model = { ...config.model };
+  for (const [variable, field] of [['DEEPSEEK_BASE_URL', 'provider_base_url'], ['DEEPSEEK_MODEL', 'id']]) {
+    const value = env?.[variable];
+    if (typeof value === 'string' && value.trim()) model[field] = value;
+  }
+  return { ...config, model };
+}
+
+function validModelEndpoint(value) {
+  if (typeof value !== 'string' || value.length > 2048
+      || /[\s\p{Cc}\\?#]/u.test(value)
+      || !/^https:\/\/[^/]+/i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    const authority = value.slice(value.indexOf('://') + 3).split('/')[0];
+    return url.protocol === 'https:' && Boolean(url.hostname)
+      && !url.username && !url.password && !authority.includes('@');
+  } catch { return false; }
+}
+
 export function validateConfig(value, { requireArchive = true } = {}) {
   if (!value || typeof value !== 'object' || !/^[a-z0-9-]{1,50}$/.test(value.id || '')) throw new SafeError('CONFIG_INVALID_SITE');
   if (typeof value.name !== 'string' || value.name.length > 100) throw new SafeError('CONFIG_INVALID_SITE');
@@ -41,8 +64,8 @@ export function validateConfig(value, { requireArchive = true } = {}) {
   if (!Number.isInteger(value.gsc.history_days) || value.gsc.history_days < 56 || value.gsc.history_days > 365) throw new SafeError('CONFIG_INVALID_HISTORY');
   if (!Number.isInteger(value.gsc.detail_limit) || value.gsc.detail_limit < 1 || value.gsc.detail_limit > 25000) throw new SafeError('CONFIG_INVALID_DETAIL_LIMIT');
   if (value.ga4?.property_id !== null && value.ga4?.property_id !== undefined && !/^\d+$/.test(String(value.ga4.property_id))) throw new SafeError('CONFIG_INVALID_GA4_PROPERTY');
-  if (value.model?.provider_base_url !== 'https://api.deepseek.com/anthropic') throw new SafeError('CONFIG_UNAPPROVED_MODEL_ENDPOINT');
-  if (typeof value.model.id !== 'string' || !/^[a-zA-Z0-9._:[\]-]{1,100}$/.test(value.model.id)) throw new SafeError('CONFIG_INVALID_MODEL');
+  if (!validModelEndpoint(value.model?.provider_base_url)) throw new SafeError('CONFIG_INVALID_MODEL_ENDPOINT');
+  if (typeof value.model.id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/@+\[\]-]{0,199}$/.test(value.model.id)) throw new SafeError('CONFIG_INVALID_MODEL');
   if (!/^\d+\.\d+\.\d+$/.test(value.model.claude_code_version || '')) throw new SafeError('CONFIG_INVALID_CLAUDE_VERSION');
   if (!Number.isInteger(value.model.timeout_seconds) || value.model.timeout_seconds < 10 || value.model.timeout_seconds > 1800) throw new SafeError('CONFIG_INVALID_MODEL_TIMEOUT');
   if (!Number.isInteger(value.model.max_turns) || value.model.max_turns < 1 || value.model.max_turns > 5) throw new SafeError('CONFIG_INVALID_MODEL_TURNS');
@@ -51,8 +74,8 @@ export function validateConfig(value, { requireArchive = true } = {}) {
   return value;
 }
 
-export async function loadConfig(path, options) {
+export async function loadConfig(path, { env = process.env, ...options } = {}) {
   let value;
   try { value = JSON.parse(await readFile(path, 'utf8')); } catch { throw new SafeError('CONFIG_UNREADABLE'); }
-  return validateConfig(value, options);
+  return validateConfig(applyModelOverrides(value, env), options);
 }
