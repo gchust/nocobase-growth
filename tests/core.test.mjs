@@ -125,6 +125,7 @@ test('full staged pipeline uses synthetic providers and archives only six approv
     assert.equal(verified, 1); assert.equal(modelCalls, 1);
     assert.deepEqual(Object.keys(archived.files).sort(), ['analysis.json', 'metrics.json', 'report.html', 'report.json', 'report.md', 'run.json']);
     assert.equal(archived.state.summary.data_through, demo.seo.data_through);
+    assert.equal(JSON.parse(archived.files['report.json']).history.index_url, 'https://github.com/gchust/nocobase-growth-reports/tree/develop/runs');
     assert.equal(archived.status, 'completed');
     assert.equal((await recordFailure({ env, archive: async () => { throw Error('must not repeat'); } })).status, 'already_published');
   } finally { await rm(dir, { recursive: true, force: true }); }

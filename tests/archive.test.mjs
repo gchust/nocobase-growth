@@ -22,7 +22,7 @@ function github() {
     metadata: {
       id: REPOSITORY_ID, full_name: REPOSITORY, name: 'nocobase-growth-reports',
       owner: { login: 'gchust' }, private: true, visibility: 'private', archived: false,
-      disabled: false, default_branch: 'main',
+      disabled: false, default_branch: 'develop',
     },
     metadataStatus: 200,
     metadataResponses: [],
@@ -104,8 +104,8 @@ function github() {
       if (server.metadataResponses.length > 0) return server.metadataResponses.shift();
       return response(server.metadata, server.metadataStatus);
     }
-    if (method === 'GET' && path === '/git/ref/heads/main') {
-      return response({ ref: 'refs/heads/main', object: { type: 'commit', sha: server.head } });
+    if (method === 'GET' && path === '/git/ref/heads/develop') {
+      return response({ ref: 'refs/heads/develop', object: { type: 'commit', sha: server.head } });
     }
     if (method === 'GET' && path.startsWith('/git/commits/')) {
       return response(commits.get(path.split('/').at(-1)));
@@ -137,7 +137,7 @@ function github() {
     if (method === 'POST' && path === '/git/commits') {
       return response({ sha: commit(body.tree, body.parents, body.message) }, 201);
     }
-    if (method === 'PATCH' && path === '/git/refs/heads/main') {
+    if (method === 'PATCH' && path === '/git/refs/heads/develop') {
       assert.equal(body.force, false);
       if (server.beforePatch) await server.beforePatch();
       if (commits.get(body.sha).parents[0]?.sha !== server.head) {
@@ -148,7 +148,7 @@ function github() {
         server.loseNextPatchResponse = false;
         throw new Error('Transport failed after publishing private report contents and test-token');
       }
-      return response({ ref: 'refs/heads/main', object: { type: 'commit', sha: server.head } });
+      return response({ ref: 'refs/heads/develop', object: { type: 'commit', sha: server.head } });
     }
     return response({ message: 'Not found' }, 404);
   };
@@ -195,7 +195,7 @@ test('fixed destination verification rejects public, unavailable, mismatched and
     ['wrong owner', { owner: { login: 'someone-else' } }, 'ARCHIVE_TARGET_MISMATCH'],
     ['archived', { archived: true }, 'ARCHIVE_TARGET_DISABLED'],
     ['disabled', { disabled: true }, 'ARCHIVE_TARGET_DISABLED'],
-    ['wrong branch', { default_branch: 'develop' }, 'ARCHIVE_BRANCH_MISMATCH'],
+    ['wrong branch', { default_branch: 'main' }, 'ARCHIVE_BRANCH_MISMATCH'],
   ];
   for (const [name, metadata, code] of cases) {
     await t.test(name, async () => {
@@ -228,7 +228,7 @@ test('complete run atomically archives allowlisted files and reads consistent pr
   assert.deepEqual(state.site_checks, input.state.site_checks);
   assert.equal(state.latest.data_through, '2026-10-08');
   assert.equal(state.latest.report_path, `${result.run_path}report.html`);
-  assert.equal(state.latest.report_url, `https://github.com/${REPOSITORY}/blob/main/${result.run_path}report.html`);
+  assert.equal(state.latest.report_url, `https://github.com/${REPOSITORY}/blob/develop/${result.run_path}report.html`);
   assert.equal(state.latest.previous_report, null);
   const marker = server.json(`${result.run_path}run.json`);
   assert.match(marker.archive.input_digest, /^[0-9a-f]{64}$/);
@@ -340,7 +340,7 @@ test('a lost tree response triggers a marker probe before retrying the transacti
   const treeWrites = server.calls.flatMap((call, index) => call.method === 'POST' && call.path === '/git/trees' ? [index] : []);
   assert.equal(treeWrites.length, 2);
   const betweenWrites = server.calls.slice(treeWrites[0] + 1, treeWrites[1]);
-  assert.ok(betweenWrites.some((call) => call.method === 'GET' && call.path === '/git/ref/heads/main'));
+  assert.ok(betweenWrites.some((call) => call.method === 'GET' && call.path === '/git/ref/heads/develop'));
   assert.ok(betweenWrites.some((call) => call.method === 'GET' && call.path.startsWith('/git/trees/')));
   assert.equal(server.calls.filter((call) => call.method === 'PATCH').length, 1);
   assert.equal(server.json('state/latest.json').run_id, '100');

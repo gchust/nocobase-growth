@@ -39,12 +39,14 @@ jobs:
     timeout-minutes: 45
     environment: growth-production
     env:
-      GROWTH_WORK_DIR: ${{ runner.temp }}/nocobase-growth
       AS_OF: ${{ inputs.as_of || '' }}
     defaults:
       run:
         shell: bash
     steps:
+      - name: Set temporary work directory
+        run: printf 'GROWTH_WORK_DIR=%s/nocobase-growth\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Check out trusted source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

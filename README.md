@@ -35,9 +35,9 @@ flowchart TD
 
 按 [部署说明](docs/setup.md) 完成：
 
-1. 确认两个仓库，报告仓保持 **Private**，均以 `main` 为默认分支。
+1. 确认两个仓库：公共代码仓以 `main` 为默认分支；报告仓保持 **Private**，以现有的 `develop` 为默认分支。
 2. 报告仓真实数字 ID `1414200278` 已写入 `sites/nocobase.json`；仅在重新创建报告仓时重新核对并更新。
-3. 在公共仓库建立 `growth-production` 环境，仅允许 `main` 分支；配置
+3. 公共仓库的 `growth-production` 环境已建立，仅允许 `main` 分支；在其中配置
    `REPORTS_TOKEN`、`GOOGLE_CREDENTIALS_JSON`、`DEEPSEEK_API_KEY`。
 4. 手动运行 `preflight`，再运行一次 `report` 并核对真实数据。
 5. 把仓库变量 `GROWTH_ENABLED` 设为 `true`，启用上海时间每日 **09:17** 的运行。

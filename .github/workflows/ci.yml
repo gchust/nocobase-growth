@@ -19,12 +19,13 @@ jobs:
     name: Synthetic tests and demo
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      GROWTH_WORK_DIR: ${{ runner.temp }}/nocobase-growth-demo
     defaults:
       run:
         shell: bash
     steps:
+      - name: Set temporary work directory
+        run: printf 'GROWTH_WORK_DIR=%s/nocobase-growth-demo\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

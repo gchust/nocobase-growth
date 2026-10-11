@@ -7,9 +7,9 @@
 | 仓库 | 可见性与分支 | 保存内容 |
 | --- | --- | --- |
 | `gchust/nocobase-growth` | Public，默认分支 `main` | 本项目代码、固定版本的 skill、工作流和合成测试数据 |
-| `gchust/nocobase-growth-reports` | Private，默认分支 `main` | 真实报告、指标、建议和跨日状态 |
+| `gchust/nocobase-growth-reports` | Private，默认分支 `develop` | 真实报告、指标、建议和跨日状态 |
 
-私有仓库创建时包含一个 README，使 `main` 已有初始提交。两个仓库都保持 GitHub Pages 禁用；本项目没有 Pages 部署工作流。
+私有仓库已在现有默认分支 `develop` 包含初始 README 和 `.gitignore`；归档直接使用该分支。两个仓库都保持 GitHub Pages 禁用；本项目没有 Pages 部署工作流。
 
 在已登录 GitHub CLI 的本机查询目标元数据：
 
@@ -17,11 +17,13 @@
 gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visibility, archived, disabled, default_branch}'
 ```
 
-当前私有报告仓的真实数字 ID `1414200278` 已写入 `sites/nocobase.json` 的 `archive.repository_id`。如果重新创建报告仓，必须重新查询并更新此 ID。目标必须是 `gchust/nocobase-growth-reports`，`private` 为 `true`、`visibility` 为 `private`、`archived` 和 `disabled` 为 `false`，默认分支为 `main`。保留 `null` 或填写示例数字都会阻止真实运行。
+当前私有报告仓的真实数字 ID `1414200278` 已写入 `sites/nocobase.json` 的 `archive.repository_id`。如果重新创建报告仓，必须重新查询并更新此 ID。目标必须是 `gchust/nocobase-growth-reports`，`private` 为 `true`、`visibility` 为 `private`、`archived` 和 `disabled` 为 `false`，默认分支为 `develop`。保留 `null` 或填写示例数字都会阻止真实运行。
 
 归档器在读取前、写入 Git 对象前和更新分支前重新核对这些条件。目标不存在、改为公开、被转移、ID 不一致或接口无法确认时，流程停止。
 
 ## 2. 设置生产环境与三个凭证
+
+当前代码仓库已建立 `growth-production` 环境并保存仅允许 `main` 分支的规则；下面的环境创建步骤供重新部署时参考。首次使用请在现有环境中添加三个凭证。
 
 在公共代码仓库打开 **Settings → Environments**，创建 `growth-production`。其 **Deployment branches and tags** 选择 **Selected branches and tags**，只添加类型为 **Branch** 的 `main` 规则。这样环境凭证仅供选定分支使用；这是 GitHub 提供的环境分支限制机制。[GitHub 环境文档](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 
@@ -41,7 +43,7 @@ gh api repos/gchust/nocobase-growth-reports --jq '{id, full_name, private, visib
 
 创建 fine-grained personal access token，Resource owner 选 `gchust`，Repository access 选 **Only select repositories**，只勾选 `nocobase-growth-reports`。Repository permissions 使用：
 
-- **Contents: Read and write**：读取历史、创建 Git tree/commit、更新 `main`。
+- **Contents: Read and write**：读取历史、创建 Git tree/commit、更新私有报告仓的 `develop`。
 - **Metadata: Read-only**：核对目标仓库身份与私有状态。
 
 设定适合维护周期的有效期，过期前更新 `growth-production` 中的 secret。仓库筛选和权限选择遵循 GitHub 的 fine-grained PAT 机制。[GitHub PAT 文档](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
@@ -76,11 +78,11 @@ GSC 域名属性可能包含多个主机名；GA4 的 hostname 限定与 GSC 属
 1. 分支选 `main`，`mode` 保持默认 `preflight`。它只核对配置、目标私有状态及三个 secret 是否存在。
 2. preflight 成功后，手动选择 `mode: report`，`as_of` 留空。这次运行会读取 Google 数据、检查重点页、调用 DeepSeek 并归档真实报告。
 3. 在私有报告仓库确认 `state/latest.json` 和它指向的报告已经出现。
-4. 在公共代码仓库 **Settings → Secrets and variables → Actions → Variables** 添加仓库变量 `GROWTH_ENABLED`，值填写小写字符串 `true`。
+4. 在公共代码仓库 **Settings → Secrets and variables → Actions → Variables**，将已建立的仓库变量 `GROWTH_ENABLED` 从 `false` 改为小写字符串 `true`。
 
 只有 `GROWTH_ENABLED == 'true'` 时，定时事件才执行生产 job。删除这个变量或改为 `false` 可暂停定时报告，手动运行仍可使用。此变量须配置为 **Repository variable**，因为 job 条件在进入 `growth-production` 环境前就会求值。
 
-定时任务设为上海时间每天 **09:17**。GitHub 的 schedule 在默认分支上运行，可能延迟；高负载时可能丢弃排队任务。公共仓库连续 60 天没有仓库活动时，定时工作流会自动禁用，届时需在 Actions 中重新启用。请将两仓库默认分支维持为 `main`。[GitHub schedule 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+定时任务设为上海时间每天 **09:17**。GitHub 的 schedule 在公共代码仓的默认分支 `main` 上运行，可能延迟；高负载时可能丢弃排队任务。公共仓库连续 60 天没有仓库活动时，定时工作流会自动禁用，届时需在 Actions 中重新启用。公共代码仓及生产环境规则保持 `main`，私有报告仓保持 `develop`。[GitHub schedule 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
 
 手动补跑时，`as_of` 可填写 `YYYY-MM-DD`，表示请求的 GSC 数据截止日；留空由程序选择可用的完整数据。这个输入通过环境变量传给程序并验证，不拼入 shell 命令。报告日期仍为本次运行在上海时区的日期，报告内同时显示实际数据截止日。
 

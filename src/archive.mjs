@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 const API_ORIGIN = 'https://api.github.com';
 const REPOSITORY = 'gchust/nocobase-growth-reports';
-const BRANCH = 'main';
+export const REPORTS_BRANCH = 'develop';
 const MAX_ATTEMPTS = 3;
 const ALLOWED_FILES = new Set([
   'report.html', 'report.md', 'report.json', 'metrics.json', 'analysis.json', 'run.json',
@@ -149,7 +149,7 @@ async function verify(ctx) {
   }
   if (metadata.private !== true || metadata.visibility !== 'private') fail('ARCHIVE_TARGET_NOT_PRIVATE');
   if (metadata.archived !== false || metadata.disabled !== false) fail('ARCHIVE_TARGET_DISABLED');
-  if (metadata.default_branch !== BRANCH) fail('ARCHIVE_BRANCH_MISMATCH');
+  if (metadata.default_branch !== REPORTS_BRANCH) fail('ARCHIVE_BRANCH_MISMATCH');
   return {
     id: metadata.id,
     full_name: metadata.full_name,
@@ -159,7 +159,7 @@ async function verify(ctx) {
     visibility: 'private',
     archived: false,
     disabled: false,
-    default_branch: BRANCH,
+    default_branch: REPORTS_BRANCH,
   };
 }
 
@@ -173,8 +173,8 @@ export async function verifyPrivateRepository(options) {
 }
 
 async function snapshot(ctx) {
-  const ref = await api(ctx, `/git/ref/heads/${BRANCH}`);
-  if (ref?.ref !== `refs/heads/${BRANCH}` || ref.object?.type !== 'commit' || !SHA.test(ref.object?.sha ?? '')) {
+  const ref = await api(ctx, `/git/ref/heads/${REPORTS_BRANCH}`);
+  if (ref?.ref !== `refs/heads/${REPORTS_BRANCH}` || ref.object?.type !== 'commit' || !SHA.test(ref.object?.sha ?? '')) {
     fail('ARCHIVE_STATE_INVALID');
   }
   const commit = await api(ctx, `/git/commits/${ref.object.sha}`);
@@ -255,7 +255,7 @@ function validateLatest(latest, ctx) {
   }
   const runPath = `runs/${latest.report_date}/${latest.run_id}-${latest.attempt}/`;
   if (latest.run_path !== runPath || latest.report_path !== `${runPath}report.html`
-      || latest.report_url !== `https://github.com/${REPOSITORY}/blob/${BRANCH}/${runPath}report.html`) {
+      || latest.report_url !== `https://github.com/${REPOSITORY}/blob/${REPORTS_BRANCH}/${runPath}report.html`) {
     fail('ARCHIVE_STATE_INVALID');
   }
 }
@@ -384,7 +384,7 @@ function entriesForRun(run, ctx, previous) {
       code_sha: run.code_sha,
       run_path: run.run_path,
       report_path: `${run.run_path}report.html`,
-      report_url: `https://github.com/${REPOSITORY}/blob/${BRANCH}/${run.run_path}report.html`,
+      report_url: `https://github.com/${REPOSITORY}/blob/${REPORTS_BRANCH}/${run.run_path}report.html`,
       previous_report: priorReport,
     };
     for (const [path, value] of [
@@ -443,7 +443,7 @@ export async function archiveRun(options) {
         await verify(ctx);
         let updated;
         try {
-          updated = await api(ctx, `/git/refs/heads/${BRANCH}`, {
+          updated = await api(ctx, `/git/refs/heads/${REPORTS_BRANCH}`, {
             method: 'PATCH', body: { sha: commit.sha, force: false },
           });
         } catch (error) {
@@ -452,7 +452,7 @@ export async function archiveRun(options) {
           }
           throw error;
         }
-        if (updated?.ref !== `refs/heads/${BRANCH}` || updated.object?.sha !== commit.sha) {
+        if (updated?.ref !== `refs/heads/${REPORTS_BRANCH}` || updated.object?.sha !== commit.sha) {
           fail('ARCHIVE_API_UNAVAILABLE', { retryable: true });
         }
         return { commit_sha: commit.sha, run_path: run.run_path, latest_updated: latestUpdated };

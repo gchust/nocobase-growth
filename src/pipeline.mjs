@@ -3,7 +3,7 @@ import { resolve, join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { SafeError, loadConfig, dateInZone, validDate } from './config.mjs';
-import { verifyPrivateRepository, readPreviousState, archiveRun } from './archive.mjs';
+import { REPORTS_BRANCH, verifyPrivateRepository, readPreviousState, archiveRun } from './archive.mjs';
 import { collectGoogle } from './google.mjs';
 import { collectTechnical } from './technical.mjs';
 import { analyzeReport } from './analyze.mjs';
@@ -90,7 +90,7 @@ export async function collectRun({ env = process.env, now = new Date(), google =
     report_status: sources.every(s => s.status === 'ok') ? 'complete' : 'limited',
     run: context.run, sources, seo: data.seo, analytics: data.analytics,
     site_checks: pageData.site_checks, evidence: [...data.evidence, ...pageData.evidence],
-    history: { index_url: 'https://github.com/' + context.config.archive.repository + '/tree/main/runs',
+    history: { index_url: `https://github.com/${context.config.archive.repository}/tree/${REPORTS_BRANCH}/runs`,
       previous_report_url: context.previous.latest?.report_url || null }
   };
   validateFacts(report);
