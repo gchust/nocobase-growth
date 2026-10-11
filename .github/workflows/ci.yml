@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nocobase-growth-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Synthetic tests and demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GROWTH_WORK_DIR: ${{ runner.temp }}/nocobase-growth-demo
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Test with synthetic data
+        run: npm test
+
+      - name: Check source and pinned references
+        run: npm run check
+
+      - name: Render synthetic demo
+        run: npm run demo
+
+      - name: Remove temporary demo
+        if: ${{ always() }}
+        run: rm -rf -- "$GROWTH_WORK_DIR"

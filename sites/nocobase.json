@@ -1,0 +1,32 @@
+{
+  "id": "nocobase",
+  "name": "NocoBase",
+  "url": "https://www.nocobase.com",
+  "timezone": "Asia/Shanghai",
+  "gsc": {
+    "property": "sc-domain:nocobase.com",
+    "search_type": "web",
+    "history_days": 90,
+    "detail_limit": 2500
+  },
+  "ga4": { "property_id": null, "hostname": "www.nocobase.com" },
+  "pages": [
+    "https://www.nocobase.com/en/",
+    "https://www.nocobase.com/cn/",
+    "https://www.nocobase.com/en/commercial",
+    "https://www.nocobase.com/en/blog"
+  ],
+  "allowed_hosts": ["nocobase.com", "www.nocobase.com"],
+  "page_limit": 12,
+  "model": {
+    "provider_base_url": "https://api.deepseek.com/anthropic",
+    "id": "deepseek-flash",
+    "claude_code_version": "2.1.296",
+    "timeout_seconds": 600,
+    "max_turns": 3
+  },
+  "archive": {
+    "repository": "gchust/nocobase-growth-reports",
+    "repository_id": 1414200278
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "nocobase-growth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Daily NocoBase SEO reporting with public automation and private evidence",
+  "engines": { "node": ">=22.15" },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "demo": "node src/cli.mjs demo",
+    "preflight": "node src/cli.mjs preflight",
+    "report": "node src/cli.mjs run"
+  }
+}

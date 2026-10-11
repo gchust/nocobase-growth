@@ -1,0 +1,4 @@
+interface:
+  display_name: "NocoBase Growth Daily"
+  short_description: "Explain verified daily SEO evidence and growth actions"
+  default_prompt: "Use $nocobase-growth-daily to interpret the supplied daily SEO evidence."

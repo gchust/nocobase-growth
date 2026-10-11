@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/AgriciDaniel/claude-seo",
+  "commit": "4b99de2f7de7e7d5247042e5fb5b4ea9368ef734",
+  "version": "2.4.2",
+  "retrieved_at": "2026-10-11",
+  "license": "MIT",
+  "files": [
+    "skills/seo-google/SKILL.md",
+    "skills/seo-drift/SKILL.md"
+  ],
+  "usage": "Pinned reference texts for the daily reporting skill. Upstream executable scripts and installer are not run."
+}

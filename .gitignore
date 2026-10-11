@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.work/
+output/
+reports/
+credentials*.json
+*service-account*.json
+*.pem
+*.key
+.DS_Store
