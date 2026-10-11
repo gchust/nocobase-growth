@@ -5,6 +5,9 @@ node_modules/
 .work/
 output/
 reports/
+# These directories contain route source, not report data.
+!viewer/app/reports/
+!viewer/app/api/reports/
 credentials*.json
 *service-account*.json
 *.pem

@@ -18,7 +18,7 @@ assert.equal(Object.keys(pkg.dependencies || {}).length, 0);
 for (const path of ['schemas/analysis.schema.json', 'sites/nocobase.json', 'vendor/claude-seo/UPSTREAM.json']) JSON.parse(await readFile(join(root, path), 'utf8'));
 // These workflows resolve runner paths from RUNNER_TEMP inside shell steps.
 // Keeping runner expressions out prevents job-level env evaluation failures.
-for (const path of ['ci.yml', 'growth-report.yml']) {
+for (const path of ['ci.yml', 'growth-report.yml', 'publish-web-report.yml']) {
   const contents = await readFile(join(root, '.github/workflows', path), 'utf8');
   assert.doesNotMatch(contents, /\$\{\{[^}]*\brunner\s*(?:\.|\[)/,
     'Resolve runner paths from RUNNER_TEMP inside a step: ' + path);
@@ -30,6 +30,14 @@ for (const forbidden of ['pull_request_target:', 'upload-artifact', 'actions/cac
 assert.match(workflow, /persist-credentials: false/);
 assert.match(workflow, /cancel-in-progress: false/);
 assert.match(workflow, /growth-production/);
+const webWorkflow = await readFile(join(root, '.github/workflows/publish-web-report.yml'), 'utf8');
+for (const forbidden of ['pull_request_target:', 'upload-artifact', 'actions/cache', 'GITHUB_STEP_SUMMARY', 'secrets: inherit', 'DEEPSEEK_API_KEY', 'GOOGLE_CREDENTIALS_JSON']) {
+  assert.ok(!webWorkflow.includes(forbidden), 'Private viewer sync has a prohibited data or credential path');
+}
+assert.match(webWorkflow, /head_repository\.full_name == github\.repository/);
+assert.match(webWorkflow, /ref: main/);
+assert.match(webWorkflow, /persist-credentials: false/);
+assert.match(webWorkflow, /REPORT_VIEWER_TOKEN: \$\{\{ secrets\.REPORT_VIEWER_TOKEN \}\}/);
 const skill = await readFile(join(root, '.claude/skills/nocobase-growth-daily/SKILL.md'), 'utf8');
 assert.match(skill, /^---\nname: nocobase-growth-daily\ndescription: /);
 assert.ok(!skill.includes('[TODO'));

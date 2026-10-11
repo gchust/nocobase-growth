@@ -1,4 +1,5 @@
 name: NocoBase growth report
+run-name: NocoBase growth ${{ github.event_name == 'schedule' && 'report' || inputs.mode }}
 
 on:
   schedule:

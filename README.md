@@ -3,6 +3,12 @@
 每天检查 `nocobase.com` 的重点页面，生成一份中文增长日报；接入 Google 后加入真实搜索数据。
 **公共仓库保存代码与工作流；私有仓库保存报告、证据和跨日状态。**
 
+在线查看：[NocoBase 增长报告](https://nocobase-growth-reports.gong-ads.chatgpt.site)。
+查看器为 **owner-private（仅所有者可访问）**，使用站点所有者的 ChatGPT 账号登录，
+可阅读 HTML、选择历史报告并下载。GitHub 私有报告仓继续保留完整归档。
+访问与同步操作见 [私有网页说明](docs/viewer.md)，程序和部署说明见
+[查看器 README](viewer/README.md)。
+
 Google Search Console 和 GA4 均为可选数据源；页面巡检使用静态 HTML。
 未配置 Google 凭证时，报告明确标记为页面 SEO 巡检，包含页面问题、跨日变化和
 有证据的建议；搜索指标保持未接入，不填零。首次巡检用于建立基线，首次发现的问题
@@ -23,6 +29,7 @@ flowchart TD
   F --> G["校验证据与 JSON，生成 HTML / Markdown"]
   G --> H["再次核验，原子写入私有报告仓"]
   H --> I["历史归档与 latest 状态"]
+  I --> J["自动同步到 ChatGPT 登录保护的私有查看器"]
 ```
 
 | 仓库 | 用途 |
@@ -31,8 +38,8 @@ flowchart TD
 | `gchust/nocobase-growth-reports`（Private） | HTML / Markdown 报告、指标、分析、运行记录和历史状态 |
 
 生产 job 只输出阶段状态，不向公共 artifact、cache 或日志输出业务数据。
-报告仓不开启 GitHub Pages。完整 HTML 下载后查看，同时提供可在私有 GitHub
-文件页直接阅读的 Markdown 版本。
+报告仓不开启 GitHub Pages。完整 HTML 可在私有查看器阅读或下载后查看，
+同时提供可在私有 GitHub 文件页直接阅读的 Markdown 版本。
 
 ## 首次配置
 
@@ -44,8 +51,13 @@ flowchart TD
    两个必需 Secrets：`REPORTS_TOKEN`、`DEEPSEEK_API_KEY`；
    需要搜索效果数据时再添加 `GOOGLE_CREDENTIALS_JSON`；
    自定义模型服务时，再配置两个 Variables：`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`。
-4. 手动运行 `preflight`，再运行一次 `report` 并核对页面检查及实际接入的数据源。
-5. 把仓库变量 `GROWTH_ENABLED` 设为 `true`，启用上海时间每日 **09:17** 的运行。
+   网页同步使用同一环境的 Variable `REPORT_VIEWER_URL` 和 Secret `REPORT_VIEWER_TOKEN`，
+   配置方式见 [私有网页说明](docs/viewer.md)。
+4. 手动运行 `preflight`，再运行一次 `report`，核对页面检查、实际接入的数据源、
+   私有归档和 `Publish private HTML report` 同步结果。
+5. 把仓库变量 `GROWTH_ENABLED` 设为 `true`，启用 **Asia/Shanghai 每日 09:17** 的运行。
+   定时日报或手动 `mode: report` 成功结束后自动触发网页同步；`preflight` 不触发同步。
+   网页更新时间取决于任务启动和执行耗时。
 
 必需配置尚未完整时不会开始生产采集；缺少 Google 凭证不阻止页面巡检。GitHub 的定时任务可能延迟；若公共仓库
 连续 60 天没有活动，schedule 会自动停用，需手动恢复。实现和维护说明见
@@ -108,6 +120,11 @@ GA4 hostname 范围可能不同，报告保留各自口径。GA4 没有 GSC 式�
 生成失败不覆盖成功状态。发布失败先重试已经生成的文件，不再次调用模型；
 写入冲突使用非强制更新并有界重试。无法确认目标私有时停止，不能回退到公共存储。
 
+`Publish private HTML report` 从已核验的私有归档读取 `state/latest.json` 对应的
+HTML，再同步到登录保护的查看器。同步失败不删除 GitHub 归档，可单独手动重跑
+该工作流，不必重新采集或调用模型。同一报告重复同步不会重复保存；查看器只缓存
+HTML 和目录，完整指标、证据和长期历史仍以私有报告仓为准。
+
 ## Skill 与模型
 
 项目日报规则位于 `.claude/skills/nocobase-growth-daily/SKILL.md`。
@@ -141,6 +158,8 @@ endpoint 和模型 ID；未设置时使用 `https://api.deepseek.com/anthropic` 
 | `src/analyze.mjs`、`src/validate.mjs` | Claude 进程隔离、输出与证据校验 |
 | `src/render.mjs` | 自包含 HTML 与安全 Markdown |
 | `src/archive.mjs`、`src/pipeline.mjs` | 私有目标核验、阶段协调和原子历史归档 |
+| `src/web-publish.mjs` | 从固定私有归档快照读取最新报告并同步到查看器 |
+| [`viewer/`](viewer/README.md) | 私有 HTML 查看器源码及部署说明 |
 | `sites/`、`schemas/` | 站点与输出契约 |
 | `tests/` | 模拟提供方、失败、隐私和完整阶段验证 |
 

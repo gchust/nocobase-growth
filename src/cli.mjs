@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os';
 import { loadConfig, SafeError } from './config.mjs';
 import { ROOT, preflight, prepareRun, collectRun, analyzeRun, publishRun, recordFailure, saveFailure } from './pipeline.mjs';
 import { writeDemo } from './demo.mjs';
+import { publishWebReport } from './web-publish.mjs';
 
-const commands = { preflight, prepare: prepareRun, collect: collectRun, analyze: analyzeRun, publish: publishRun, failure: recordFailure };
+const commands = { preflight, prepare: prepareRun, collect: collectRun, analyze: analyzeRun, publish: publishRun, failure: recordFailure, 'web-publish': publishWebReport };
 
 export async function main(args = process.argv.slice(2), env = process.env, output = process.stdout) {
   const command = args[0] || '';
   if (args.length > 1 || !['demo', 'run', ...Object.keys(commands)].includes(command)) {
-    output.write('Usage: node src/cli.mjs demo|preflight|prepare|collect|analyze|publish|failure|run\n');
+    output.write('Usage: node src/cli.mjs demo|preflight|prepare|collect|analyze|publish|failure|web-publish|run\n');
     return 2;
   }
   let stage = command;

@@ -1,0 +1,60 @@
+name: Publish private HTML report
+
+on:
+  workflow_run:
+    workflows: [NocoBase growth report]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nocobase-growth-private-web
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Synchronize private HTML viewer
+    if: >-
+      github.repository == 'gchust/nocobase-growth'
+      && github.ref == 'refs/heads/main'
+      && (github.event_name == 'workflow_dispatch'
+        || (github.event.workflow_run.conclusion == 'success'
+          && github.event.workflow_run.display_title == 'NocoBase growth report'
+          && github.event.workflow_run.head_branch == 'main'
+          && github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: growth-production
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Set temporary work directory
+        run: printf 'GROWTH_WORK_DIR=%s/nocobase-growth-web\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      # Always use the trusted default branch; no upstream artifacts or model
+      # output can select executable code for this credential-bearing workflow.
+      - name: Check out trusted source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Publish HTML from verified private archive
+        env:
+          REPORTS_TOKEN: ${{ secrets.REPORTS_TOKEN }}
+          REPORT_VIEWER_URL: ${{ vars.REPORT_VIEWER_URL }}
+          REPORT_VIEWER_TOKEN: ${{ secrets.REPORT_VIEWER_TOKEN }}
+        run: node src/cli.mjs web-publish
+
+      - name: Remove private temporary files
+        if: ${{ always() }}
+        run: rm -rf -- "$GROWTH_WORK_DIR"

@@ -12,8 +12,11 @@ distinct from zero and never infer site totals from top query/page rows. Preserv
 source time zones, complete comparison periods, source status and evidence IDs.
 
 Only a verified private repository with the configured numeric ID may receive
-reports. Never add a public fallback or publish Pages. Pass only model credentials
-to Claude; do not give it Google/GitHub tokens or filesystem/network tools.
+report archives. The authorized owner-private HTML viewer may cache rendered HTML
+after private archival; it must retain authenticated access. Never add a public
+report fallback or publish real reports through public Pages. Keep viewer source
+public and runtime data private. Pass only model credentials to Claude; do not give
+it Google/GitHub/viewer tokens or filesystem/network tools.
 
 Pin external skills and Claude Code versions. Runtime must not download latest
 skills, plugins, hooks or arbitrary scripts. Report data and scraped titles are
